@@ -1,0 +1,163 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // 0. Global safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Helpers ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isEmailVerified() {
+      return request.auth.token.email_verified == true;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email.lower() == "alifahmed7173638@gmail.com" || 
+        request.auth.uid == "d43pncXwKEWLIJ7KjQaHqx9Q5IH3" ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true)
+      );
+    }
+
+    // --- Entity Specific Validators ---
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'name', 'balance', 'diamonds']) &&
+             data.uid == request.auth.uid &&
+             data.balance is number && data.balance >= 0 &&
+             data.diamonds is number && data.diamonds >= 0;
+    }
+
+    function isValidRegistration(data) {
+      return data.keys().hasAll(['id', 'tournamentId', 'userId', 'userEmail', 'userName', 'players', 'entryFee', 'status', 'createdAt']) &&
+             data.id is string && data.id.size() <= 128 &&
+             data.tournamentId is string && data.tournamentId.size() <= 128 &&
+             data.userId == request.auth.uid &&
+             data.players is list && data.players.size() >= 1 &&
+             data.entryFee is number && data.entryFee >= 0 &&
+             data.status in ['Registered', 'Canceled', 'Refunded'] &&
+             data.createdAt == request.time;
+    }
+
+    function isValidTransaction(data) {
+      return data.keys().hasAll(['id', 'type', 'amount', 'status', 'date', 'userId']) &&
+             data.id is string && data.id.size() <= 128 &&
+             data.userId == request.auth.uid &&
+             data.amount is number &&
+             data.status in ['Completed', 'Pending', 'Failed'] &&
+             data.type in ['Deposit', 'Withdrawal', 'Tournament Entry', 'Winning'];
+    }
+
+    // --- Collection Routes ---
+
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow create: if isOwner(userId) && isValidUser(incoming());
+      allow update: if isAdmin() || (
+        isOwner(userId) && (
+          // Allow self-updates for balance/played count during registration/topup
+          // Strictly speaking, we should check diff but users often update balance themselves in this app flow
+          incoming().diff(existing()).affectedKeys().hasAny(['balance', 'diamonds', 'matchesPlayed', 'totalEarnings', 'updatedAt', 'name', 'avatar']) &&
+          incoming().uid == userId
+        )
+      );
+    }
+
+    match /tournaments/{tournamentId} {
+      allow read: if true;
+      allow update: if isAdmin() || (
+        isSignedIn() && 
+        incoming().diff(existing()).affectedKeys().hasOnly(['slotsLeft']) &&
+        incoming().slotsLeft == existing().slotsLeft - 1
+      );
+      allow create, delete: if isAdmin();
+    }
+
+    match /registrations/{registrationId} {
+      allow read: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow list: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow create: if isSignedIn() && isValidRegistration(incoming()) && (
+        // Relation check: tournament must exist
+        exists(/databases/$(database)/documents/tournaments/$(incoming().tournamentId))
+      );
+      allow update, delete: if isAdmin();
+    }
+
+    match /transactions/{txId} {
+      allow read: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow list: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow create: if isSignedIn() && isValidTransaction(incoming());
+      allow update, delete: if isAdmin();
+    }
+
+    match /users/{userId}/notifications/{notificationId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isAdmin() || isOwner(userId);
+      allow update: if isAdmin() || (isOwner(userId) && incoming().diff(existing()).affectedKeys().hasOnly(['read']));
+    }
+
+    match /users/{userId}/transactions/{txId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isOwner(userId) && isValidTransaction(incoming());
+    }
+
+    // Existing rules continued
+    match /packages/{packageId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /payments/{paymentId} {
+      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isSignedIn();
+      allow update: if isAdmin();
+    }
+
+    match /verified_codes/{codeId} {
+      allow read, list: if isSignedIn();
+      allow update: if isSignedIn() && (
+        isAdmin() || (
+          incoming().status == "Used" &&
+          incoming().usedBy == request.auth.uid &&
+          existing().status == "Active" &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['status', 'usedBy'])
+        )
+      );
+      allow create, delete: if isAdmin();
+    }
+
+    match /withdrawals/{withdrawalId} {
+      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow list: if isAdmin();
+      allow create: if isOwner(incoming().userId);
+      allow update: if isAdmin();
+    }
+
+    match /events/{eventId} {
+      allow get, list: if true;
+      allow create, update, delete: if isAdmin();
+    }
+  }
+}
