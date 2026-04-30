@@ -7,46 +7,30 @@ import {
   Diamond, Bell, Search, ChevronRight,
   Target, LayoutGrid, Users, BarChart3,
   HelpCircle, Newspaper, Plus, Zap, ShieldCheck, Headphones,
-  Settings as SettingsIcon, Filter, Check, Copy, Clock, ArrowRight, Trash2, CheckCircle2,
-  ExternalLink, Calendar, ShoppingBag, ArrowLeft
+  Settings as SettingsIcon, Settings, Filter, Check, Copy, Clock, ArrowRight, Trash2, CheckCircle2,
+  ExternalLink, Calendar, ShoppingBag, ArrowLeft, Send, DollarSign, Phone
 } from 'lucide-react';
+
+const TELEGRAM_SUPPORT_LINK = "https://t.me/ARISE_RAIKOU_support_bot";
 
 // Firebase & Auth
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { 
   socialSignIn, logout, googleProvider, 
-  getTournaments, getTopupPackages, getEvents,
+  getTournaments, getEvents,
   redeemVerifiedCode, createWithdrawalRequest, getUserTransactions,
   getUserNotifications, markNotificationAsRead, registerForTournament, getTournamentRegistrations,
   db, onSnapshot, collection, query, orderBy, handleFirestoreError, OperationType,
-  subscribeHeroBanners, getUserRegistrations
+  subscribeHeroBanners, getUserRegistrations, createShopOrder, subscribePaymentMethods
 } from './lib/firebase';
 import AdminDashboard from './components/AdminDashboard';
 
 // Types
 import { 
-  Tournament, UserProfile, Transaction, Notification, TopupPackage, 
-  GameEvent, TournamentRegistration, PlayerInfo, HeroBanner
+  Tournament, UserProfile, Transaction, Notification, 
+  GameEvent, TournamentRegistration, PlayerInfo, HeroBanner, PaymentMethod, ShopPackage
 } from './types';
 import { formatDate, getErrorMessage } from './lib/utils';
-
-// Mock Data
-const MOCK_USER_INITIAL: UserProfile = {
-  name: "RAIKOU GAMER",
-  uid: "1234567890",
-  balance: 0,
-  diamonds: 0,
-  avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=Raikou&backgroundColor=6a00ff&mood=serious",
-  totalEarnings: 0,
-  matchesPlayed: 0
-};
-
-const MOCK_TRANSACTIONS: Transaction[] = [
-  { id: 'TX101', date: '2024-04-24 14:30', type: 'Deposit', amount: 500, status: 'Completed', method: 'bKash' },
-  { id: 'TX102', date: '2024-04-23 09:15', type: 'Tournament Entry', amount: -20, status: 'Completed', tournamentId: '1' },
-  { id: 'TX103', date: '2024-04-22 22:00', type: 'Winning', amount: 150, status: 'Completed', tournamentId: '2' },
-  { id: 'TX104', date: '2024-04-21 11:45', type: 'Withdrawal', amount: -200, status: 'Pending', method: 'Nagad', destination: '01XXXXXXXXX' },
-];
 
 const SkeletonCard = () => (
   <div className="glass-card relative overflow-hidden bg-[#0a0a0a]/80 border-white/5 rounded-2xl animate-pulse">
@@ -73,18 +57,6 @@ const PREDEFINED_AVATARS = [
   "https://api.dicebear.com/7.x/avataaars/svg?seed=Ace",
   "https://api.dicebear.com/7.x/avataaars/svg?seed=Neon",
   "https://api.dicebear.com/7.x/avataaars/svg?seed=Blitz",
-];
-
-const TOURNAMENTS: Tournament[] = [
-  { id: '1', title: 'SQUAD BATTLE', entryFee: 20, prizePool: 1000, slotsTotal: 48, slotsLeft: 12, startTime: '02 : 15 : 30', type: 'Squads' },
-  { id: '2', title: 'DUO FIGHT', entryFee: 15, prizePool: 600, slotsTotal: 32, slotsLeft: 12, startTime: '01 : 45 : 10', type: 'Duos' },
-  { id: '3', title: 'SOLO WAR', entryFee: 10, prizePool: 300, slotsTotal: 50, slotsLeft: 35, startTime: '03 : 20 : 00', type: 'Solos' },
-];
-
-const UPCOMING: Tournament[] = [
-  { id: '4', title: 'SQUAD CHALLENGE', entryFee: 20, prizePool: 1000, slotsTotal: 48, slotsLeft: 48, startTime: '25 MAY | 08:00 PM', type: 'Squads' },
-  { id: '5', title: 'DUO SHOWDOWN', entryFee: 15, prizePool: 600, slotsTotal: 32, slotsLeft: 32, startTime: '26 MAY | 09:00 PM', type: 'Duos' },
-  { id: '6', title: 'SOLO LEAGUE', entryFee: 10, prizePool: 300, slotsTotal: 50, slotsLeft: 50, startTime: '27 MAY | 10:00 PM', type: 'Solos' },
 ];
 
 // Reusable Components
@@ -116,10 +88,11 @@ const DesktopNav = ({ user }: { user: UserProfile | null }) => {
     { icon: <User />, label: 'PROFILE', path: '/profile' },
     { icon: <Trophy />, label: 'ANNOUNCEMENTS', path: '/announcements' },
     { icon: <History />, label: 'MY MATCHES', path: '/matches' },
-    { icon: <BarChart3 />, label: 'LEADERBOARD', path: '/leaderboard' },
+    { icon: <Diamond />, label: 'TOP-UP PANEL', path: '/top-up' },
+    { icon: <Plus />, label: 'DEPOSIT', path: '/deposit' },
     { icon: <Wallet />, label: 'WITHDRAW', path: '/withdraw' },
     { icon: <CreditCard />, label: 'TRANSACTIONS', path: '/transactions' },
-    { icon: <HelpCircle />, label: 'SUPPORT', path: '/support' },
+    { icon: <Send className="text-[#0088cc]" />, label: 'TELEGRAM', path: TELEGRAM_SUPPORT_LINK, isExternal: true },
   ];
 
   if (user?.isAdmin) {
@@ -144,12 +117,8 @@ const DesktopNav = ({ user }: { user: UserProfile | null }) => {
       <nav className="flex-1 space-y-1">
         {navItems.map((item) => {
           const isActive = location.pathname === item.path;
-          return (
-            <Link 
-              key={item.label}
-              to={item.path} 
-              className={`flex items-center gap-4 px-6 py-4 transition-all relative group overflow-hidden ${isActive ? 'text-neon-yellow drop-shadow-[0_0_8px_#facc15]' : 'text-white/50 hover:text-white hover:bg-white/5'}`}
-            >
+          const content = (
+            <>
               <div className={`transition-all duration-500 group-hover:scale-110 group-hover:rotate-6 ${isActive ? 'scale-110' : ''}`}>
                 {item.icon}
               </div>
@@ -163,6 +132,30 @@ const DesktopNav = ({ user }: { user: UserProfile | null }) => {
                   <div className="absolute inset-0 bg-neon-yellow/5 z-0" />
                 </>
               )}
+            </>
+          );
+
+          if (item.isExternal) {
+            return (
+              <a 
+                key={item.label}
+                href={item.path}
+                target="_blank"
+                rel="no-referrer"
+                className="flex items-center gap-4 px-6 py-4 transition-all relative group overflow-hidden text-white/50 hover:text-white hover:bg-white/5"
+              >
+                {content}
+              </a>
+            );
+          }
+
+          return (
+            <Link 
+              key={item.label}
+              to={item.path} 
+              className={`flex items-center gap-4 px-6 py-4 transition-all relative group overflow-hidden ${isActive ? 'text-neon-yellow drop-shadow-[0_0_8px_#facc15]' : 'text-white/50 hover:text-white hover:bg-white/5'}`}
+            >
+              {content}
             </Link>
           );
         })}
@@ -210,8 +203,8 @@ const RightSidebar = ({ user, isOpen, onClose }: { user: UserProfile, isOpen?: b
   };
 
   return (
-    <aside className={`fixed lg:sticky lg:top-0 right-0 h-screen w-80 bg-[#0a0a0a] border-l border-white/5 z-50 transition-transform duration-300 ${isOpen ? 'translate-x-0' : 'translate-x-full lg:translate-x-0'}`}>
-      <div className="p-6 h-full flex flex-col">
+    <aside className={`fixed lg:sticky lg:top-0 right-0 h-screen w-80 bg-[#0a0a0a] border-l border-white/5 z-50 transition-transform duration-300 ${isOpen ? 'translate-x-0' : 'translate-x-full lg:translate-x-0'} overflow-y-auto custom-scrollbar`}>
+      <div className="p-6 min-h-full flex flex-col">
         <div className="flex items-center justify-between lg:hidden mb-6">
           <h2 className="font-display font-bold">PROFILE</h2>
           <button onClick={onClose} className="p-2 hover:text-neon-yellow"><X /></button>
@@ -281,27 +274,37 @@ const RightSidebar = ({ user, isOpen, onClose }: { user: UserProfile, isOpen?: b
           </div>
         </div>
 
-        {/* Balance */}
-        <Link to="/top-up" onClick={onClose} className="glass-card bg-[#121212] border-white/5 mb-8 neon-border-purple block transition-all hover:bg-white/5">
-          <p className="text-[10px] text-white/40 font-black uppercase tracking-widest mb-3">Balance</p>
-          <div className="flex items-center justify-between mb-4">
-            <p className="text-3xl font-display font-black">৳ <span className="text-neon-yellow neon-text-yellow">{user.balance}</span>.00</p>
-            <Wallet className="text-white/20" size={32} />
+        {/* Balance Section */}
+        <Link to="/deposit" onClick={onClose} className="glass-card bg-[#121212] border-white/5 mb-8 neon-border-purple block transition-all hover:bg-white/5 relative group">
+          <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
+            <Plus size={60} className="text-neon-yellow" />
           </div>
-          <div className="w-full btn-secondary py-3 text-xs tracking-widest flex items-center justify-center gap-2 uppercase">
+          <p className="text-[10px] text-white/40 font-black uppercase tracking-widest mb-3">Wallet Balance</p>
+          <div className="flex items-center justify-between mb-4">
+            <div className="space-y-1">
+              <p className="text-3xl font-display font-black italic shadow-neon-yellow">৳ <span className="text-neon-yellow">{user.balance}</span></p>
+              <p className="text-[9px] font-black text-white/20 uppercase tracking-[0.2em]">Ready for Payout</p>
+            </div>
+            <div className="w-12 h-12 rounded-2xl bg-white/5 flex items-center justify-center border border-white/5">
+              <Wallet className="text-neon-purple shadow-[0_0_15px_rgba(168,85,247,0.5)]" size={24} />
+            </div>
+          </div>
+          <div className="w-full bg-neon-yellow text-black py-4 rounded-xl text-[10px] font-black tracking-widest flex items-center justify-center gap-2 uppercase shadow-[0_0_20px_rgba(250,204,21,0.2)] group-hover:shadow-[0_0_30px_rgba(250,204,21,0.4)] transition-all">
             <Plus size={16} /> Add Balance
           </div>
         </Link>
 
         {/* Quick Menu */}
         <div className="space-y-3 flex-1 overflow-y-auto no-scrollbar">
-          <p className="text-[10px] text-white/40 font-black uppercase tracking-widest mb-2 px-1">Quick Menu</p>
+          <p className="text-[10px] text-white/40 font-black uppercase tracking-widest mb-2 px-1">Control Center</p>
           {[
             ...(user.isAdmin ? [{ icon: <ShieldCheck size={18} />, label: 'ADMIN PANEL', color: 'text-neon-yellow', path: '/admin' }] : []),
-            { icon: <User size={18} />, label: 'PROFILE', color: 'text-neon-purple', path: '/profile' },
-            { icon: <Wallet size={18} />, label: 'BALANCE', color: 'text-blue-400', path: '/top-up' },
+            { icon: <User size={18} />, label: 'MY PROFILE', color: 'text-neon-purple', path: '/profile' },
+            { icon: <Plus size={18} />, label: 'DEPOSIT MONEY', color: 'text-neon-yellow', path: '/deposit' },
+            { icon: <Wallet size={18} />, label: 'WITHDRAW CASH', color: 'text-neon-purple', path: '/withdraw' },
+            { icon: <Diamond size={18} />, label: 'DIAMOND SHOP', color: 'text-blue-400', path: '/top-up' },
             { icon: <History size={18} />, label: 'MY MATCHES', color: 'text-neon-purple', path: '/matches' },
-            { icon: <BarChart3 size={18} />, label: 'LEADERBOARD', color: 'text-blue-400', path: '/leaderboard' },
+            { icon: <CreditCard size={18} />, label: 'TRANSACTIONS', color: 'text-blue-400', path: '/transactions' },
           ].map(item => (
             <Link key={item.label} to={item.path} onClick={onClose} className="flex items-center justify-between p-4 bg-white/3 border border-white/5 rounded-xl hover:bg-white/10 transition-all group">
               <div className="flex items-center gap-4">
@@ -1037,12 +1040,18 @@ const TournamentDetails = ({ tournaments }: { tournaments: Tournament[] }) => {
             </div>
             
             {/* Support Widget */}
-            <div className="glass-card bg-neon-purple/5 border-neon-purple/20 p-6">
-              <h4 className="text-[10px] font-black text-neon-purple uppercase tracking-widest mb-3">Need Help?</h4>
-              <p className="text-[10px] font-bold text-white/60 mb-4 uppercase leading-relaxed">Join our discord or contact support for queries regarding this tournament.</p>
-              <button className="w-full py-3 bg-white/5 border border-white/10 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-white/10 transition-all">
-                Contact Support
-              </button>
+            <div className="glass-card bg-[#0088cc]/5 border-[#0088cc]/20 p-6">
+              <h4 className="text-[10px] font-black text-[#0088cc] uppercase tracking-widest mb-3">Tournament Support</h4>
+              <p className="text-[10px] font-bold text-white/60 mb-4 uppercase leading-relaxed text-balance">Need help with this match? Join our Telegram support official channel.</p>
+              <a 
+                href={TELEGRAM_SUPPORT_LINK}
+                target="_blank"
+                rel="no-referrer"
+                className="w-full py-3 bg-white/5 border border-white/10 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-white/10 transition-all flex items-center justify-center gap-2"
+              >
+                <Send size={14} />
+                CONTACT SUPPORT
+              </a>
             </div>
           </div>
         </div>
@@ -1176,14 +1185,40 @@ const Home = ({ onOpenSidebar, notifications, onToggleNotifications, tournaments
   
   const [currentHeroIndex, setCurrentHeroIndex] = useState(0);
   const activeBanners = heroBanners.filter(b => b.isActive);
+  
+  const homeSlides = [
+    ...activeBanners.map(b => ({ ...b, slideType: 'banner' as const })),
+    ...ongoingTournaments.slice(0, 3).map(t => ({
+      id: t.id,
+      title: t.title,
+      subtitle: `Entry: ৳${t.entryFee} • Prize: ৳${t.prizePool} • ${t.type}`,
+      image: t.image || (t.type === 'Squads' ? "https://images.unsplash.com/photo-1542751371-adc38448a05e?auto=format" : "https://images.unsplash.com/photo-1552820728-8b83bb6b773f?auto=format"),
+      link: `/tournament/${t.id}`,
+      buttonText: 'JOIN MATCH',
+      type: 'Live',
+      isActive: true,
+      slideType: 'tournament' as const
+    })),
+    ...events.filter(e => (e.type === 'ongoing' || e.status === 'Ongoing' || e.status === 'Live') && !activeBanners.find(b => b.id === e.id)).slice(0, 3).map(e => ({
+      id: e.id,
+      title: e.title,
+      subtitle: e.description,
+      image: e.image || "https://images.unsplash.com/photo-1502685104226-ee32379fefbe?auto=format",
+      link: e.link || '#',
+      buttonText: 'VIEW POST',
+      type: 'Announcement',
+      isActive: true,
+      slideType: 'event' as const
+    }))
+  ];
 
   useEffect(() => {
-    if (activeBanners.length <= 1) return;
+    if (homeSlides.length <= 1) return;
     const interval = setInterval(() => {
-      setCurrentHeroIndex(prev => (prev + 1) % activeBanners.length);
+      setCurrentHeroIndex(prev => (prev + 1) % homeSlides.length);
     }, 5000);
     return () => clearInterval(interval);
-  }, [activeBanners.length]);
+  }, [homeSlides.length]);
   const completedTournaments = tournaments.filter(t => t.status === 'Completed');
 
   // Ongoing Section (Home): show posts where type === "ongoing" (+ entries from tournaments)
@@ -1316,24 +1351,32 @@ const Home = ({ onOpenSidebar, notifications, onToggleNotifications, tournaments
               </span>
             )}
           </button>
-          <button className="px-3 py-1.5 bg-indigo-600 rounded-lg text-[10px] font-black">DISCORD</button>
+          <a 
+            href={TELEGRAM_SUPPORT_LINK} 
+            target="_blank" 
+            rel="no-referrer" 
+            className="flex items-center gap-2 px-4 py-2 bg-[#0088cc] hover:bg-[#0088cc]/80 rounded-xl text-[10px] font-black transition-all hover:scale-105"
+          >
+            <Send size={14} />
+            TELEGRAM
+          </a>
         </div>
       </div>
 
       {/* Hero */}
-      {activeBanners.length > 0 ? (
+      {homeSlides.length > 0 ? (
         <section className="relative rounded-3xl overflow-hidden mb-12 aspect-[21/9] group border border-white/5">
           <AnimatePresence mode="wait">
             <motion.div
-              key={activeBanners[currentHeroIndex].id}
+              key={homeSlides[currentHeroIndex].id}
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -20 }}
               className="absolute inset-0"
             >
               <img 
-                src={activeBanners[currentHeroIndex].image} 
-                alt={activeBanners[currentHeroIndex].title} 
+                src={homeSlides[currentHeroIndex].image} 
+                alt={homeSlides[currentHeroIndex].title} 
                 className="w-full h-full object-cover"
                 referrerPolicy="no-referrer"
               />
@@ -1349,32 +1392,41 @@ const Home = ({ onOpenSidebar, notifications, onToggleNotifications, tournaments
                 >
                   <div className="flex items-center gap-2 mb-2">
                     <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-widest ${
-                      activeBanners[currentHeroIndex].type === 'Live' ? 'bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.5)]' : 
-                      activeBanners[currentHeroIndex].type === 'Ad' ? 'bg-neon-yellow text-black' : 
+                      homeSlides[currentHeroIndex].type === 'Live' ? 'bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.5)]' : 
+                      homeSlides[currentHeroIndex].type === 'Ad' ? 'bg-neon-yellow text-black' : 
                       'bg-neon-purple'
                     }`}>
-                      {activeBanners[currentHeroIndex].type}
+                      {homeSlides[currentHeroIndex].type}
                     </span>
                   </div>
                   <h1 className="font-display font-black text-3xl md:text-5xl lg:text-6xl italic leading-tight inline-block skew-x-[-10deg] uppercase">
-                    {activeBanners[currentHeroIndex].title}
+                    {homeSlides[currentHeroIndex].title}
                   </h1>
                 </motion.div>
                 <p className="text-[10px] md:text-xs lg:text-sm font-bold text-white/70 max-w-md mb-8 uppercase tracking-[0.2em] leading-relaxed line-clamp-2">
-                  {activeBanners[currentHeroIndex].subtitle}
+                  {homeSlides[currentHeroIndex].subtitle}
                 </p>
-                {activeBanners[currentHeroIndex].link && (
+                {homeSlides[currentHeroIndex].link && (
                   <div>
-                    <motion.a 
-                      href={activeBanners[currentHeroIndex].link}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      whileHover={{ scale: 1.1, rotate: -2 }}
-                      whileTap={{ scale: 0.95 }}
-                      className="btn-primary px-8 md:px-12 py-3 md:py-4 text-xs md:text-sm inline-block"
-                    >
-                      {activeBanners[currentHeroIndex].buttonText || 'WATCH NOW'}
-                    </motion.a>
+                    {(homeSlides[currentHeroIndex] as any).slideType === 'tournament' ? (
+                      <Link
+                        to={homeSlides[currentHeroIndex].link}
+                        className="btn-primary px-8 md:px-12 py-3 md:py-4 text-xs md:text-sm inline-block"
+                      >
+                        {homeSlides[currentHeroIndex].buttonText || 'JOIN NOW'}
+                      </Link>
+                    ) : (
+                      <motion.a 
+                        href={homeSlides[currentHeroIndex].link}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        whileHover={{ scale: 1.1, rotate: -2 }}
+                        whileTap={{ scale: 0.95 }}
+                        className="btn-primary px-8 md:px-12 py-3 md:py-4 text-xs md:text-sm inline-block"
+                      >
+                        {homeSlides[currentHeroIndex].buttonText || 'WATCH NOW'}
+                      </motion.a>
+                    )}
                   </div>
                 )}
               </div>
@@ -1382,9 +1434,9 @@ const Home = ({ onOpenSidebar, notifications, onToggleNotifications, tournaments
           </AnimatePresence>
 
           {/* Dots Indicator */}
-          {activeBanners.length > 1 && (
+          {homeSlides.length > 1 && (
             <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-30 flex gap-2">
-              {activeBanners.map((_, i) => (
+              {homeSlides.map((_, i) => (
                 <button 
                   key={i}
                   onClick={() => setCurrentHeroIndex(i)}
@@ -1456,23 +1508,7 @@ const Home = ({ onOpenSidebar, notifications, onToggleNotifications, tournaments
           </select>
         </div>
       </div>
-
-      {/* Features Bar */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-12">
-        {[
-          { icon: <Target className="text-neon-purple" />, label: "FAST & FAIR", sub: "Matches" },
-          { icon: <Trophy className="text-neon-purple" />, label: "REAL CASH", sub: "Prizes" },
-          { icon: <ShieldCheck className="text-neon-purple" />, label: "PROTECTION", sub: "Anti-Cheat" },
-          { icon: <Headphones className="text-neon-purple" />, label: "24/7", sub: "Support" },
-        ].map(item => (
-          <div key={item.label} className="glass-card bg-[#121212] border-white/5 flex flex-col items-center justify-center text-center p-4">
-            <div className="bg-white/5 p-3 rounded-2xl mb-3">{item.icon}</div>
-            <h4 className="font-display font-black text-[10px] tracking-widest">{item.label}</h4>
-            <p className="text-[8px] font-bold text-white/40 uppercase tracking-widest">{item.sub}</p>
-          </div>
-        ))}
-      </div>
-
+      
       {/* Section: Ongoing */}
       {filteredTournaments.length > 0 && (
         <section className="mb-12">
@@ -1533,51 +1569,259 @@ const Home = ({ onOpenSidebar, notifications, onToggleNotifications, tournaments
         </section>
       )}
 
-      {/* Why Choose Section */}
-      <section className="py-12 border-t border-white/5">
-        <div className="flex items-center justify-center gap-4 mb-12">
-          <Zap className="text-neon-yellow" />
-          <h2 className="font-display font-black text-lg tracking-widest uppercase italic">Why Choose Arise Raikou?</h2>
-          <Zap className="text-neon-yellow" />
+      {/* Global Community News / Events */}
+      <div>
+        <div className="flex items-center gap-3 mb-6 border-b border-white/5 pb-4">
+          <BarChart3 className="text-neon-yellow" size={16} />
+          <h2 className="font-display font-black text-sm tracking-widest uppercase italic">COMMUNITY FEED</h2>
         </div>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-          {[
-            { icon: <Plus className="rotate-45" />, title: "INSTANT PAYOUTS", desc: "Win and get paid instantly" },
-            { icon: <ShieldCheck />, title: "100% SAFE", desc: "Fair Play & Secure" },
-            { icon: <Diamond />, title: "EASY TOP UP", desc: "Quick Diamond Top Up" },
-            { icon: <Headphones />, title: "24/7 SUPPORT", desc: "We are here for you" },
-          ].map(box => (
-            <div key={box.title} className="text-center group">
-              <div className="w-16 h-16 mx-auto rounded-2xl bg-gradient-to-br from-neon-purple/80 to-neon-purple flex items-center justify-center mb-4 shadow-xl group-hover:scale-110 transition-transform">
-                {box.icon}
-              </div>
-              <h4 className="font-display font-black text-[10px] tracking-widest mb-1">{box.title}</h4>
-              <p className="text-[8px] font-bold text-white/40 uppercase">{box.desc}</p>
-            </div>
-          ))}
-        </div>
-      </section>
+        
+        <div className="grid lg:grid-cols-2 gap-8">
+          {isLoading ? (
+            Array(2).fill(0).map((_, i) => (
+              <div key={i} className="h-64 bg-white/5 rounded-3xl animate-pulse" />
+            ))
+          ) : (
+            events.filter(e => e.type !== 'announcement' && e.type !== 'upcoming' && e.status !== 'Announcement').map(event => {
+              const isClickable = !!event.link;
+              const CardContent = (
+                <div className="flex flex-col md:flex-row h-full">
+                  {event.image && (
+                    <div className="md:w-1/3 relative h-48 md:h-auto overflow-hidden">
+                      <img 
+                        src={event.image} 
+                        alt={event.title} 
+                        className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" 
+                        referrerPolicy="no-referrer"
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-t from-[#121212] md:from-transparent md:bg-gradient-to-r md:via-transparent to-transparent" />
+                    </div>
+                  )}
+                  <div className={`p-8 flex flex-col justify-center ${event.image ? 'md:w-2/3' : 'w-full'}`}>
+                    <div className="flex items-center gap-2 mb-3">
+                      <span className="px-2 py-0.5 bg-neon-purple text-white text-[8px] font-black uppercase tracking-widest">
+                        {event.type === 'event' ? 'POST' : 'NEWS'}
+                      </span>
+                      <span className="text-[8px] font-black uppercase text-white/30 tracking-widest">{event.date}</span>
+                    </div>
+                    <h3 className="font-display font-black text-2xl italic uppercase mb-2 group-hover:text-neon-yellow transition-colors">
+                      {event.title === 'Announcement' || !event.title ? 'Latest Update' : event.title}
+                    </h3>
+                    <p className="text-sm text-white/70 font-bold leading-relaxed mb-6">{event.description}</p>
+                    
+                    {event.link && (
+                      <div className="inline-flex items-center gap-2 text-neon-yellow font-display font-black text-xs uppercase tracking-widest group-hover:gap-4 transition-all">
+                        View Details <ArrowRight size={16} />
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
 
-      <footer className="py-12 text-center border-t border-white/5">
+              return (
+                <motion.div 
+                  key={event.id}
+                  initial={{ opacity: 0, y: 20 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  viewport={{ once: true }}
+                  className={`glass-card bg-[#121212] border-white/5 overflow-hidden group hover:border-neon-yellow/30 transition-all duration-500 ${isClickable ? 'cursor-pointer hover:shadow-[0_0_50px_rgba(250,204,21,0.1)]' : ''}`}
+                >
+                  {isClickable ? (
+                    <a href={event.link} target="_blank" rel="noopener noreferrer">
+                      {CardContent}
+                    </a>
+                  ) : (
+                    CardContent
+                  )}
+                </motion.div>
+              );
+            })
+          )}
+        </div>
+      </div>
+
+      <footer className="py-12 text-center border-t border-white/5 space-y-6">
+         <div className="flex justify-center gap-6">
+            <a 
+              href={TELEGRAM_SUPPORT_LINK} 
+              target="_blank" 
+              rel="no-referrer" 
+              className="flex items-center gap-2 px-6 py-3 bg-white/5 hover:bg-white/10 border border-white/10 rounded-2xl text-[10px] font-black tracking-widest transition-all hover:scale-105 uppercase"
+            >
+              <Send size={16} className="text-[#0088cc]" />
+              Support
+            </a>
+         </div>
          <p className="text-[8px] text-white/30 font-black tracking-widest">© 2024 ARISE RAIKOU. ALL RIGHTS RESERVED.</p>
       </footer>
     </PageWrapper>
   );
 };
 
-// Placeholder Pages
-const TopUp = () => {
+// Top-Up Diamond Shop (The "Top-Up Panel")
+const TopUpPanel = ({ packages = [] }: { packages?: any[] }) => {
+  const { profile, updateProfile } = useAuth();
+  const [selectedOffer, setSelectedOffer] = useState<any>(null);
+  const [gameUid, setGameUid] = useState('');
+  const [isOrdering, setIsOrdering] = useState(false);
+  const [status, setStatus] = useState<{ type: 'success' | 'error', message: string } | null>(null);
+
+  const displayPackages = packages;
+
+  const handleCreateOrder = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!profile || !selectedOffer || !gameUid) return;
+
+    if (profile.balance < selectedOffer.price) {
+      setStatus({ type: 'error', message: 'Insufficient Balance. Please deposit funds.' });
+      return;
+    }
+
+    setIsOrdering(true);
+    setStatus(null);
+
+    try {
+      await createShopOrder({
+        userId: profile.uid,
+        userEmail: profile.email || '',
+        categoryId: selectedOffer.categoryId || 'diamonds',
+        categoryTitle: selectedOffer.categoryTitle || 'Diamond Top-Up',
+        packageId: selectedOffer.id,
+        packageLabel: `${selectedOffer.amount} Diamonds`,
+        price: selectedOffer.price,
+        playerInfo: gameUid,
+        image: selectedOffer.image || ''
+      });
+
+      setStatus({ type: 'success', message: 'Order submitted! Diamonds will be added soon.' });
+      setGameUid('');
+      setSelectedOffer(null);
+    } catch (err: any) {
+      setStatus({ type: 'error', message: err.message || 'Something went wrong.' });
+    } finally {
+      setIsOrdering(false);
+    }
+  };
+
+  return (
+    <PageWrapper>
+      <div className="max-w-4xl mx-auto pb-32">
+        <div className="flex flex-col md:flex-row justify-between items-center gap-6 mb-12">
+          <div>
+            <h1 className="font-display font-black text-3xl italic tracking-tight uppercase">Diamond <span className="text-neon-yellow">Top-Up</span></h1>
+            <p className="text-xs text-white/40 font-bold tracking-widest mt-2">DIRECT IN-GAME TOP-UP PANEL</p>
+          </div>
+          <div className="glass-card bg-white/5 border-white/10 px-8 py-4 rounded-2xl flex items-center gap-4">
+            <div>
+              <p className="text-[8px] font-black text-white/40 uppercase mb-1">Your Balance</p>
+              <p className="font-display font-black text-2xl text-neon-yellow italic drop-shadow-[0_0_10px_#facc15]">৳{profile?.balance}</p>
+            </div>
+            <Link to="/deposit" className="p-3 bg-neon-purple text-white rounded-xl hover:scale-105 transition-all">
+              <Plus size={20} />
+            </Link>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-6 mb-12">
+          {displayPackages.map((offer) => (
+            <motion.div 
+              key={offer.id}
+              whileHover={{ y: -5 }}
+              onClick={() => setSelectedOffer(offer)}
+              className={`glass-card relative overflow-hidden p-6 flex flex-col items-center justify-center text-center cursor-pointer transition-all border-2 ${selectedOffer?.id === offer.id ? 'border-neon-yellow bg-neon-yellow/5' : 'border-white/5 bg-[#121212] hover:border-white/20'}`}
+            >
+              {offer.image ? (
+                <div className="w-full aspect-square mb-4 rounded-xl overflow-hidden border border-white/5">
+                   <img src={offer.image} alt={offer.label} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                </div>
+              ) : (
+                <div className="w-12 h-12 bg-neon-purple/20 rounded-2xl flex items-center justify-center mb-4 text-neon-purple">
+                  <Diamond size={24} />
+                </div>
+              )}
+              <h3 className="font-display font-black text-xl italic mb-1 uppercase">{offer.amount}</h3>
+              <p className="text-[10px] text-white/40 font-black uppercase mb-4 tracking-widest">{offer.label}</p>
+              <div className="py-2 px-4 bg-white/5 rounded-lg border border-white/5 font-display font-black text-neon-yellow">
+                ৳{offer.price}
+              </div>
+
+              {offer.badge && (
+                <div className="absolute top-2 right-2 bg-red-500 text-white text-[7px] font-black px-2 py-0.5 rounded uppercase tracking-tighter shadow-lg">
+                  {offer.badge}
+                </div>
+              )}
+            </motion.div>
+          ))}
+        </div>
+
+        {selectedOffer && (
+          <motion.div 
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="glass-card bg-[#121212] border-neon-yellow/30 p-8 max-w-xl mx-auto"
+          >
+            <div className="flex items-center gap-4 mb-8">
+              <div className="p-3 bg-neon-yellow/20 rounded-xl text-neon-yellow">
+                <ShoppingBag size={24} />
+              </div>
+              <div>
+                <h3 className="font-display font-black text-xl uppercase italic">Order Summary</h3>
+                <p className="text-[10px] text-white/40 font-black uppercase tracking-widest">{selectedOffer.amount} • ৳{selectedOffer.price}</p>
+              </div>
+              <button onClick={() => setSelectedOffer(null)} className="ml-auto text-white/20 hover:text-white">
+                <X size={20} />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateOrder} className="space-y-6">
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase tracking-widest text-white/40">Game Player UID</label>
+                <input 
+                  required
+                  type="text" 
+                  value={gameUid}
+                  onChange={e => setGameUid(e.target.value)}
+                  placeholder="Enter your Free Fire UID"
+                  className="w-full bg-black/40 border-2 border-white/5 rounded-xl px-5 py-4 text-sm font-bold text-white outline-none focus:border-neon-yellow transition-all"
+                />
+              </div>
+
+              {status && (
+                <div className={`p-4 rounded-xl text-center text-[10px] font-black uppercase tracking-widest ${status.type === 'success' ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500'}`}>
+                  {status.message}
+                </div>
+              )}
+
+              <button 
+                type="submit"
+                disabled={isOrdering || !gameUid}
+                className="w-full py-5 bg-neon-yellow text-black rounded-2xl font-black text-xs uppercase tracking-widest hover:scale-[1.02] active:scale-95 transition-all shadow-[0_0_20px_rgba(250,204,21,0.3)] disabled:opacity-50"
+              >
+                {isOrdering ? 'SUBMITTING...' : `CONFIRM ORDER (৳${selectedOffer.price})`}
+              </button>
+            </form>
+          </motion.div>
+        )}
+      </div>
+    </PageWrapper>
+  );
+};
+
+const Deposit = () => {
   const { profile } = useAuth();
   const [amount, setAmount] = useState<string>('');
   const [trxId, setTrxId] = useState('');
   const [isVerifying, setIsVerifying] = useState(false);
   const [status, setStatus] = useState<{ type: 'success' | 'error', message: string } | null>(null);
+  const [methods, setMethods] = useState<PaymentMethod[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
-  const methods = [
-    { id: 'bikash', name: 'bKash', color: 'bg-[#e2136e]', number: '01908182961' },
-    { id: 'nogod', name: 'Nagad', color: 'bg-[#f7941d]', number: '01908182961' },
-    { id: 'rocket', name: 'Rocket', color: 'bg-[#8c3494]', number: '01908182961' },
-  ];
+  useEffect(() => {
+    return subscribePaymentMethods((data) => {
+      setMethods(data);
+      setIsLoading(false);
+    });
+  }, []);
 
   const handleVerify = async () => {
     const numAmount = Number(amount);
@@ -1612,16 +1856,87 @@ const TopUp = () => {
   return (
     <PageWrapper>
       <div className="max-w-2xl mx-auto space-y-8 pb-32">
+        {/* Header Section */}
         <div className="text-center">
-          <h1 className="font-display font-black text-3xl tracking-tight uppercase italic mb-2">INSTANT <span className="text-neon-yellow">TOP-UP</span></h1>
-          <p className="text-[10px] text-white/40 font-black uppercase tracking-[0.3em]">Automatic Verification System</p>
+          <h1 className="font-display font-black text-4xl lg:text-5xl tracking-tighter uppercase italic mb-2">
+            ADD <span className="text-neon-yellow">BALANCE</span>
+          </h1>
+          <p className="text-[10px] text-white/40 font-black uppercase tracking-[0.3em]">Direct Wallet Deposit Panel</p>
         </div>
 
-        {/* Transaction Entry */}
-        <div className="glass-card bg-[#121212] border-white/5 p-8 space-y-6">
+        {/* Balance Bar (Matching Screenshot) */}
+        <div className="flex justify-center">
+          <div className="glass-card bg-[#121212]/80 border-white/5 px-8 py-4 rounded-2xl flex items-center gap-4 shadow-[0_0_30px_rgba(0,0,0,0.5)]">
+            <div className="text-[10px] font-black text-white/40 uppercase tracking-widest hidden sm:block">Your Balance</div>
+            <div className="flex items-center gap-2">
+              <span className="font-display font-black text-2xl text-neon-yellow italic skew-x-[-10deg]">৳{profile?.balance || 0}</span>
+              <div className="w-6 h-6 rounded-full bg-neon-purple flex items-center justify-center">
+                 <Plus size={14} className="text-white" />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Payment Methods Grid */}
+        <div className="space-y-4">
+           <div className="flex items-center gap-2 mb-4 border-l-2 border-neon-purple pl-3">
+             <CreditCard className="text-neon-purple" size={16} />
+             <h2 className="font-display font-black text-xs tracking-widest uppercase italic">Select Provider</h2>
+           </div>
+           
+           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {isLoading ? (
+                Array(2).fill(0).map((_, i) => (
+                  <div key={i} className="h-24 bg-white/5 rounded-3xl animate-pulse" />
+                ))
+              ) : methods.length === 0 ? (
+                <div className="col-span-full text-center p-8 bg-white/2 rounded-xl border border-dashed border-white/10">
+                   <p className="text-[10px] text-white/20 font-black uppercase tracking-widest">No methods available.</p>
+                </div>
+              ) : (
+                methods.map((m) => (
+                  <motion.div 
+                    key={m.id}
+                    whileHover={{ y: -3 }}
+                    className={`glass-card p-5 bg-[#121212] border-white/5 flex items-center justify-between group transition-all hover:border-neon-yellow/30 ${!m.isEnabled ? 'opacity-30 grayscale' : ''}`}
+                  >
+                    <div className="flex items-center gap-4">
+                      <div className="w-12 h-12 bg-white/5 rounded-xl flex items-center justify-center text-neon-yellow">
+                         {m.name.toLowerCase().includes('bikash') ? <div className="w-full h-full p-2"><div className="w-full h-full bg-[#e2136e] rounded-lg" /></div> : 
+                          m.name.toLowerCase().includes('nagad') ? <div className="w-full h-full p-2"><div className="w-full h-full bg-[#f7941d] rounded-lg" /></div> : 
+                          <Diamond size={24} />}
+                      </div>
+                      <div>
+                        <h4 className="font-display font-black text-sm italic tracking-tight uppercase">{m.name}</h4>
+                        <p className="font-mono text-xs text-white/40 tracking-wider select-all">{m.number}</p>
+                        <span className="text-[8px] font-black uppercase tracking-widest text-neon-purple/70">{m.type}</span>
+                      </div>
+                    </div>
+                    <button 
+                      disabled={!m.isEnabled}
+                      onClick={() => {
+                        navigator.clipboard.writeText(m.number);
+                        alert(`${m.name} number copied!`);
+                      }}
+                      className="p-3 bg-white/5 rounded-xl hover:bg-neon-yellow hover:text-black transition-all"
+                    >
+                      <Copy size={16} />
+                    </button>
+                  </motion.div>
+                ))
+              )}
+           </div>
+        </div>
+
+        {/* Deposit Form */}
+        <div className="glass-card bg-[#121212] border-white/5 p-8 space-y-6 relative overflow-hidden group">
+          <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+            <Zap size={80} className="text-neon-yellow" />
+          </div>
+
           <div className="space-y-4">
-            <p className="text-[9px] font-black uppercase tracking-[0.2em] text-white/20">ENTER TRANSACTION ID (TRXID)</p>
-            <div className="bg-black/40 border border-white/5 rounded-2xl p-4">
+            <p className="text-[9px] font-black uppercase tracking-[0.2em] text-white/30 italic">Step 1: Enter Transaction ID (TrxID)</p>
+            <div className="bg-black/40 border border-white/5 rounded-2xl p-4 focus-within:border-neon-yellow transition-all">
               <input 
                 type="text" 
                 value={trxId}
@@ -1633,7 +1948,7 @@ const TopUp = () => {
           </div>
 
           <div className="space-y-4">
-            <p className="text-[9px] font-black uppercase tracking-[0.2em] text-white/20">ENTER AMOUNT (৳)</p>
+            <p className="text-[9px] font-black uppercase tracking-[0.2em] text-white/30 italic">Step 2: Enter Amount (৳)</p>
             <input 
               type="number" 
               value={amount}
@@ -1656,7 +1971,7 @@ const TopUp = () => {
           <button 
             onClick={handleVerify}
             disabled={isVerifying || !trxId || !amount}
-            className="btn-primary w-full py-5 text-xs tracking-widest group"
+            className="btn-primary w-full py-5 text-xs tracking-widest uppercase font-black"
           >
             {isVerifying ? (
               <div className="flex items-center justify-center gap-2">
@@ -1664,45 +1979,36 @@ const TopUp = () => {
                 VERIFYING...
               </div>
             ) : (
-              'VERIFY TRANSACTION'
+              'CONFIRM DEPOSIT'
             )}
           </button>
         </div>
 
-        {/* Instructions */}
-        <div className="glass-card bg-[#121212] border-white/5 p-8">
-          <h3 className="font-display font-black text-sm tracking-widest uppercase italic mb-6 border-b border-white/5 pb-4">How to Top-up</h3>
-          <div className="space-y-6">
-            {methods.map((m, i) => (
-              <div key={m.id} className="flex items-center justify-between p-4 bg-white/3 rounded-xl border border-white/5">
-                <div className="flex items-center gap-4">
-                  <div className={`w-8 h-8 rounded-lg ${m.color} flex items-center justify-center text-[10px] font-black`}>
-                    {i + 1}
-                  </div>
-                  <div>
-                    <p className="font-bold text-xs uppercase tracking-tight">{m.name} Personal</p>
-                    <p className="font-mono text-sm text-white/40 tracking-widest">{m.number}</p>
-                  </div>
-                </div>
-                <button 
-                  onClick={() => navigator.clipboard.writeText(m.number)}
-                  className="p-2 bg-white/5 rounded-lg hover:bg-neon-yellow hover:text-black transition-all"
-                >
-                  <Copy size={14} />
-                </button>
-              </div>
-            ))}
-          </div>
-          <p className="text-[10px] text-white/30 font-bold uppercase mt-6 text-center leading-relaxed">
-            Send Money to any of the numbers above. <br/> 
-            Once successful, copy the <span className="text-neon-yellow">Transaction ID</span> and verify above. <br/>
-            Verification is <span className="text-neon-purple">Instant & Automated</span>.
-          </p>
+        {/* Instructions Footer */}
+        <div className="p-6 bg-white/3 rounded-2xl border border-white/5">
+           <div className="flex items-center gap-3 mb-4">
+             <Settings className="text-neon-purple" size={16} />
+             <h3 className="text-[10px] font-black uppercase tracking-widest">Deposit Guidelines</h3>
+           </div>
+           <ul className="grid md:grid-cols-2 gap-4">
+              {[
+                "Copy our number from the provider cards above.",
+                "Send money using bKash/Nagad/Rocket app.",
+                "Copy the Transaction ID (TrxID) after payment.",
+                "Enter TrxID and Amount here for instant verification."
+              ].map((text, i) => (
+                <li key={i} className="flex gap-3 items-start">
+                  <span className="w-4 h-4 rounded-full bg-neon-purple/20 text-neon-purple flex items-center justify-center text-[8px] font-black shrink-0 mt-0.5">{i+1}</span>
+                  <p className="text-[9px] font-bold text-white/40 uppercase leading-relaxed">{text}</p>
+                </li>
+              ))}
+           </ul>
         </div>
       </div>
     </PageWrapper>
   );
 };
+
 const Withdraw = () => {
   const { profile } = useAuth();
   const [amount, setAmount] = useState<string>('');
@@ -1712,9 +2018,9 @@ const Withdraw = () => {
   const [status, setStatus] = useState<{ type: 'success' | 'error', message: string } | null>(null);
 
   const methods = [
-    { id: 'bikash', name: 'bKash', color: 'bg-[#e2136e]' },
-    { id: 'nogod', name: 'Nagad', color: 'bg-[#f7941d]' },
-    { id: 'rocket', name: 'Rocket', color: 'bg-[#8c3494]' },
+    { id: 'bikash', name: 'bKash', color: 'bg-[#e2136e]', icon: <Diamond size={16} /> },
+    { id: 'nogod', name: 'Nagad', color: 'bg-[#f7941d]', icon: <Zap size={16} /> },
+    { id: 'rocket', name: 'Rocket', color: 'bg-[#8c3494]', icon: <Trophy size={16} /> },
   ];
 
   const handleWithdraw = async (e: React.FormEvent) => {
@@ -1745,7 +2051,7 @@ const Withdraw = () => {
         method,
         number
       });
-      setStatus({ type: 'success', message: 'Withdrawal request submitted successfully! Balance deducted.' });
+      setStatus({ type: 'success', message: 'Withdrawal request submitted successfully! Your balance will be reviewed by admin.' });
       setAmount('');
       setNumber('');
     } catch (err: any) {
@@ -1757,99 +2063,136 @@ const Withdraw = () => {
 
   return (
     <PageWrapper>
-      <div className="max-w-xl mx-auto">
-        <div className="text-center mb-12">
-          <div className="inline-flex p-4 bg-neon-purple/20 rounded-2xl mb-4">
-            <Wallet className="text-neon-purple" size={32} />
-          </div>
-          <h1 className="font-display font-black text-3xl italic tracking-tight uppercase">Withdraw <span className="text-neon-yellow">Funds</span></h1>
-          <p className="text-xs text-white/40 font-bold tracking-widest mt-2">Convert your winnings to real cash</p>
+      <div className="max-w-2xl mx-auto space-y-8 pb-32">
+        {/* Header */}
+        <div className="text-center">
+          <h1 className="font-display font-black text-4xl lg:text-5xl tracking-tighter uppercase italic mb-2">
+            WITHDRAW <span className="text-neon-yellow">WALLET</span>
+          </h1>
+          <p className="text-[10px] text-white/40 font-black uppercase tracking-[0.3em]">Convert Winnings to Real Cash</p>
         </div>
 
-        <div className="glass-card bg-[#121212] border-white/5 p-8 relative overflow-hidden mb-8">
-          <div className="absolute top-0 right-0 p-4">
-            <p className="text-[10px] text-white/40 font-black uppercase tracking-widest">Available</p>
-            <p className="font-display font-black text-xl text-neon-yellow">৳{profile?.balance}</p>
+        {/* Balance Bar */}
+        <div className="flex justify-center">
+          <div className="glass-card bg-[#121212]/80 border-white/5 px-8 py-4 rounded-2xl flex items-center gap-4 shadow-[0_0_30px_rgba(0,0,0,0.5)]">
+            <div className="text-[10px] font-black text-white/40 uppercase tracking-widest hidden sm:block">Available for Payout</div>
+            <div className="flex items-center gap-2">
+              <span className="font-display font-black text-2xl text-neon-yellow italic skew-x-[-10deg]">৳{profile?.balance || 0}</span>
+              <div className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center border border-white/5">
+                 <Wallet size={20} className="text-neon-purple" />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="glass-card bg-[#121212] border-white/5 p-8 relative overflow-hidden group">
+          <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
+            <DollarSign size={100} className="text-neon-purple" />
           </div>
 
-          <form onSubmit={handleWithdraw} className="space-y-6">
-            <div className="space-y-2">
-              <label className="text-[10px] font-black uppercase tracking-widest text-white/40">Withdrawal Amount (৳)</label>
-              <input 
-                required
-                type="number" 
-                min="100"
-                value={amount}
-                onChange={e => setAmount(e.target.value)}
-                placeholder="Enter amount (Min ৳100)"
-                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-4 outline-none focus:border-neon-yellow font-bold text-lg"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-[10px] font-black uppercase tracking-widest text-white/40">Select Method</label>
-              <div className="grid grid-cols-3 gap-3">
+          <form onSubmit={handleWithdraw} className="space-y-8">
+            <div className="space-y-4">
+              <label className="text-[10px] font-black uppercase tracking-widest text-white/40 italic flex items-center gap-2">
+                <span className="w-1.5 h-1.5 rounded-full bg-neon-purple" />
+                Select Withdrawal Method
+              </label>
+              <div className="grid grid-cols-3 gap-4">
                 {methods.map(m => (
                   <button 
                     key={m.id}
                     type="button"
                     onClick={() => setMethod(m.name)}
-                    className={`p-4 rounded-xl border-2 transition-all flex flex-col items-center gap-2 ${method === m.name ? 'border-neon-yellow bg-neon-yellow/10' : 'border-white/5 bg-white/3'}`}
+                    className={`p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-3 relative overflow-hidden ${method === m.name ? 'border-neon-yellow bg-neon-yellow/5' : 'border-white/5 bg-white/2 hover:border-white/20'}`}
                   >
-                    <div className={`w-8 h-8 rounded-lg ${m.color}`} />
-                    <span className="text-[10px] font-black uppercase tracking-tighter">{m.name}</span>
+                    {method === m.name && (
+                      <div className="absolute top-2 right-2">
+                         <div className="w-2 h-2 bg-neon-yellow rounded-full animate-pulse" />
+                      </div>
+                    )}
+                    <div className={`w-10 h-10 rounded-xl ${m.color} flex items-center justify-center text-white shadow-lg`}>
+                      {m.icon}
+                    </div>
+                    <span className="text-[9px] font-black uppercase tracking-widest">{m.name}</span>
                   </button>
                 ))}
               </div>
             </div>
 
-            <div className="space-y-2">
-              <label className="text-[10px] font-black uppercase tracking-widest text-white/40">{method || 'Method'} Number</label>
-              <input 
-                required
-                type="text" 
-                value={number}
-                onChange={e => setNumber(e.target.value)}
-                placeholder="01XXXXXXXXX"
-                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-4 outline-none focus:border-neon-yellow font-bold"
-              />
+            <div className="grid md:grid-cols-2 gap-6">
+              <div className="space-y-4">
+                <label className="text-[10px] font-black uppercase tracking-widest text-white/40 italic flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-neon-purple" />
+                  Request Amount (৳)
+                </label>
+                <div className="relative">
+                  <input 
+                    required
+                    type="number" 
+                    min="100"
+                    value={amount}
+                    onChange={e => setAmount(e.target.value)}
+                    placeholder="Min ৳100"
+                    className="w-full bg-black/40 border border-white/5 rounded-2xl px-6 py-5 outline-none focus:border-neon-yellow font-display font-black text-2xl transition-all text-white"
+                  />
+                  <div className="absolute right-6 top-1/2 -translate-y-1/2 text-white/20 text-xs font-black">BDT</div>
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <label className="text-[10px] font-black uppercase tracking-widest text-white/40 italic flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-neon-purple" />
+                  Account Number
+                </label>
+                <div className="relative">
+                  <input 
+                    required
+                    type="text" 
+                    value={number}
+                    onChange={e => setNumber(e.target.value)}
+                    placeholder="01XXXXXXXXX"
+                    className="w-full bg-black/40 border border-white/5 rounded-2xl px-6 py-5 outline-none focus:border-neon-yellow font-mono font-bold text-xl transition-all text-white"
+                  />
+                  <Phone size={16} className="absolute right-6 top-1/2 -translate-y-1/2 text-white/20" />
+                </div>
+              </div>
             </div>
 
             {status && (
-              <div className={`p-4 rounded-xl text-[10px] font-black uppercase tracking-widest text-center ${status.type === 'success' ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500'}`}>
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className={`p-5 rounded-2xl text-[10px] font-black uppercase tracking-widest text-center ${status.type === 'success' ? 'bg-green-500/10 text-green-500 border border-green-500/20' : 'bg-red-500/10 text-red-500 border border-red-500/20'}`}
+              >
                 {status.message}
-              </div>
+              </motion.div>
             )}
 
             <button 
               type="submit"
               disabled={isSubmitting || !amount || !method || !number}
-              className="w-full py-4 bg-neon-purple text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:scale-[1.02] active:scale-95 transition-all shadow-[0_0_20px_rgba(106,0,255,0.3)] disabled:opacity-50"
+              className="btn-primary w-full py-5 text-[10px] tracking-[0.2em] uppercase font-black"
             >
-              {isSubmitting ? 'Processing...' : 'Request Withdrawal'}
+              {isSubmitting ? (
+                <div className="flex items-center justify-center gap-2">
+                  <div className="w-4 h-4 border-2 border-black/20 border-t-black rounded-full animate-spin" />
+                  PROCESSING...
+                </div>
+              ) : (
+                'SUBMIT WITHDRAWAL REQUEST'
+              )}
             </button>
           </form>
         </div>
 
-        <div className="p-6 bg-white/3 rounded-2xl border border-white/5 space-y-4">
-          <div className="flex items-center gap-3">
-            <ShieldCheck className="text-neon-yellow" size={20} />
-            <h3 className="text-xs font-black uppercase tracking-widest">Withdrawal Terms</h3>
-          </div>
-          <ul className="space-y-3">
-            {[
-              "Withdrawals are processed within 24 hours.",
-              "Minimum withdrawal amount is ৳100.",
-              "Balance is deducted immediately upon request.",
-              "If rejected, the amount will be refunded to your balance.",
-              "Make sure your mobile number is correct."
-            ].map((text, i) => (
-              <li key={i} className="flex gap-3 items-start">
-                <div className="w-1 h-1 bg-neon-purple rounded-full mt-1.5 shrink-0" />
-                <p className="text-[10px] font-bold text-white/40 leading-relaxed uppercase">{text}</p>
-              </li>
-            ))}
-          </ul>
+        {/* Security / Info */}
+        <div className="p-6 bg-white/3 rounded-3xl border border-white/5 flex flex-col md:flex-row items-center gap-6">
+           <div className="w-12 h-12 bg-white/5 rounded-2xl flex items-center justify-center text-neon-yellow shrink-0 border border-white/5">
+             <ShieldCheck size={24} />
+           </div>
+           <div className="flex-1 text-center md:text-left">
+             <h4 className="text-[10px] font-black uppercase tracking-widest mb-1">Secure Payout System</h4>
+             <p className="text-[9px] font-bold text-white/30 uppercase leading-relaxed">Admin will manually verify and process your request within 24 hours. If rejected, your balance will be automatically returned to your wallet. Ensure your phone number is correct for the selected provider.</p>
+           </div>
         </div>
       </div>
     </PageWrapper>
@@ -2254,6 +2597,17 @@ const Profile = ({ user, onUpdateAvatar, onUpdateProfile }: {
                 </div>
               )}
               <p className="text-white/40 font-bold font-mono tracking-widest uppercase text-xs mt-1">Player UID: {user.uid}</p>
+              <div className="flex gap-4 mt-3">
+                <a 
+                  href={TELEGRAM_SUPPORT_LINK}
+                  target="_blank"
+                  rel="no-referrer"
+                  className="flex items-center gap-2 px-4 py-2 bg-[#0088cc]/10 border border-[#0088cc]/30 rounded-xl text-[10px] font-black text-[#0088cc] uppercase tracking-widest hover:bg-[#0088cc]/20 transition-all"
+                >
+                  <Send size={14} />
+                  Support Bot
+                </a>
+              </div>
             </div>
           </div>
         </div>
@@ -2344,25 +2698,18 @@ const Profile = ({ user, onUpdateAvatar, onUpdateProfile }: {
 const Login = () => {
   const [error, setError] = useState<string | null>(null);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const { login } = useAuth();
 
-  const handleSignIn = async (provider: any) => {
+  const handleSignIn = async () => {
+    setIsLoggingIn(true);
+    setError(null);
     try {
-      setIsLoggingIn(true);
-      setError(null);
-      await socialSignIn(provider);
-    } catch (err: any) {
-      let message = 'Login failed. Please try again.';
-      if (err.message && err.message.startsWith('{')) {
-        try {
-          const detailedError = JSON.parse(err.message);
-          message = detailedError.error || message;
-        } catch (parseErr) {
-          message = err.message;
-        }
-      } else {
-        message = err.message || message;
+      const result = await login();
+      if (!result.success) {
+        setError(result.message);
       }
-      setError(message);
+    } catch (err: any) {
+      setError(err.message || "An unexpected error occurred.");
     } finally {
       setIsLoggingIn(false);
     }
@@ -2378,7 +2725,7 @@ const Login = () => {
       <motion.div 
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="glass-card max-w-sm w-full bg-[#121212]/80 border-white/5 relative z-10"
+        className="glass-card max-w-sm w-full bg-[#121212]/80 border-white/5 relative z-10 p-8"
       >
         <div className="text-center mb-10">
           <div className="inline-flex items-center justify-center w-20 h-20 bg-black rounded-2xl border border-neon-yellow mb-6 shadow-[0_0_20px_rgba(250,204,21,0.2)]">
@@ -2390,7 +2737,7 @@ const Login = () => {
 
         <div className="space-y-4">
           <button 
-            onClick={() => handleSignIn(googleProvider)}
+            onClick={handleSignIn}
             disabled={isLoggingIn}
             className="w-full flex items-center justify-center gap-4 bg-white text-black py-4 rounded-xl font-black text-xs uppercase tracking-widest hover:scale-[1.02] active:scale-95 transition-all shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"
           >
@@ -2405,7 +2752,7 @@ const Login = () => {
         </div>
 
         {error && (
-          <p className="mt-6 text-[10px] text-red-400 font-bold uppercase tracking-widest text-center">{error}</p>
+          <p className="mt-6 text-[10px] text-red-400 font-black uppercase tracking-widest text-center glass py-2 rounded-lg border border-red-400/20">{error}</p>
         )}
 
         <div className="mt-10 pt-6 border-t border-white/5 text-center">
@@ -2427,6 +2774,7 @@ function AppInner() {
   const [tournaments, setTournaments] = useState<Tournament[]>([]);
   const [events, setEvents] = useState<GameEvent[]>([]);
   const [heroBanners, setHeroBanners] = useState<HeroBanner[]>([]);
+  const [shopPackages, setShopPackages] = useState<any[]>([]);
   const [isLoadingTournaments, setIsLoadingTournaments] = useState(true);
   const [isLoadingEvents, setIsLoadingEvents] = useState(true);
   const location = useLocation();
@@ -2469,10 +2817,20 @@ function AppInner() {
       // Real-time listener for hero banners
       const heroUnsub = subscribeHeroBanners(setHeroBanners);
 
+      // Real-time listener for shop packages
+      const shopUnsub = onSnapshot(collection(db, 'shop_packages'), (snapshot) => {
+        const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        setShopPackages(data.filter((p: any) => p.isActive));
+      }, (error) => {
+        console.error("Shop packages listener error:", error);
+        handleFirestoreError(error, OperationType.LIST, 'shop_packages');
+      });
+
       return () => {
         tournamentsUnsub();
         eventsUnsub();
         heroUnsub();
+        shopUnsub();
       };
     }
   }, [authUser, profile]);
@@ -2569,8 +2927,8 @@ function AppInner() {
             <Route path="/announcements" element={<AnnouncementsPage events={events} isLoading={isLoadingEvents} />} />
             <Route path="/news" element={<AnnouncementsPage events={events} isLoading={isLoadingEvents} />} />
             <Route path="/matches" element={<MyMatches />} />
-            <Route path="/leaderboard" element={<Placeholder title="Leaderboard" />} />
-            <Route path="/top-up" element={<TopUp />} />
+            <Route path="/top-up" element={<TopUpPanel packages={shopPackages} />} />
+            <Route path="/deposit" element={<Deposit />} />
             <Route path="/withdraw" element={<Withdraw />} />
             <Route path="/transactions" element={<Transactions />} />
             <Route path="/support" element={<Placeholder title="Support" />} />
@@ -2599,6 +2957,22 @@ function AppInner() {
 
       {/* Profile Sidebar - Right on Large Screens */}
       <RightSidebar user={profile} isOpen={isSidebarOpen} onClose={() => setSidebarOpen(false)} />
+
+      {/* Floating Telegram Support Button */}
+      <a 
+        href={TELEGRAM_SUPPORT_LINK}
+        target="_blank"
+        rel="no-referrer"
+        className="fixed bottom-24 right-6 lg:bottom-10 lg:right-10 z-50 group hover:scale-105 transition-all"
+      >
+        <div className="absolute -inset-2 bg-[#0088cc] rounded-full blur opacity-20 group-hover:opacity-60 transition duration-500 animate-pulse"></div>
+        <div className="relative w-14 h-14 bg-[#0088cc] rounded-full flex items-center justify-center text-white shadow-[0_0_20px_rgba(0,136,204,0.4)] transform group-hover:scale-110 group-hover:rotate-12 transition-all duration-300">
+          <Send size={28} className="mr-0.5" />
+        </div>
+        <div className="absolute right-full mr-4 top-1/2 -translate-y-1/2 px-4 py-2 bg-black/80 backdrop-blur-md border border-white/10 rounded-xl text-[10px] font-black text-white uppercase tracking-widest whitespace-nowrap opacity-0 group-hover:opacity-100 transition-all pointer-events-none translate-x-4 group-hover:translate-x-0">
+          Connect Support
+        </div>
+      </a>
       
       {/* Mobile Sidebar Toggle - Only profile trigger for now (removed as requested) */}
 

@@ -8,9 +8,9 @@ import {
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import firebaseConfig from '../../firebase-applet-config.json';
 import { 
-  UserProfile, Tournament, TopupPackage, VerifiedCode, WithdrawalRequest, 
+  UserProfile, Tournament, VerifiedCode, WithdrawalRequest, 
   Notification, Transaction, GameEvent, TournamentRegistration, HeroBanner,
-  ShopCategory, ShopPackage, ShopOrder
+  ShopCategory, ShopPackage, ShopOrder, PaymentMethod
 } from '../types';
 
 const app = initializeApp(firebaseConfig);
@@ -268,49 +268,6 @@ export async function uploadTournamentImage(id: string, file: File): Promise<str
   ]);
   
   return getDownloadURL(uploadResult.ref);
-}
-
-// Package Methods
-export async function getTopupPackages(): Promise<TopupPackage[]> {
-  const path = 'packages';
-  try {
-    const q = query(collection(db, path), orderBy('price', 'asc'));
-    const snapshot = await getDocs(q);
-    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as TopupPackage));
-  } catch (error) {
-    handleFirestoreError(error, OperationType.LIST, path);
-    return [];
-  }
-}
-// Reference: https://console.firebase.google.com/project/${firebaseConfig.projectId}/firestore/databases/${(firebaseConfig as any).firestoreDatabaseId || '(default)'}/data
-
-export async function saveTopupPackage(pkg: Partial<TopupPackage>) {
-  const path = 'packages';
-  const id = pkg.id || doc(collection(db, path)).id;
-  const docRef = doc(db, path, id);
-  try {
-    const timeoutPromise = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error('Save operation timed out (60s)')), 60000)
-    );
-
-    await Promise.race([
-      setDoc(docRef, { ...pkg, id }, { merge: true }),
-      timeoutPromise
-    ]);
-    return id;
-  } catch (error) {
-    handleFirestoreError(error, OperationType.WRITE, `${path}/${id}`);
-  }
-}
-
-export async function deleteTopupPackage(id: string) {
-  const path = 'packages';
-  try {
-    const docRef = doc(db, path, id);
-    await deleteDoc(docRef);
-  } catch (error) {
-    handleFirestoreError(error, OperationType.DELETE, `${path}/${id}`);
-  }
 }
 
 // Verified Codes Methods
@@ -1349,6 +1306,18 @@ export async function updateShopOrder(orderId: string, updates: Partial<ShopOrde
   }
 }
 
+export async function getShopPackages(): Promise<ShopPackage[]> {
+  const path = 'shop_packages';
+  try {
+    const q = query(collection(db, path), orderBy('price', 'asc'));
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ShopPackage));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.LIST, path);
+    return [];
+  }
+}
+
 export async function addShopCategory(cat: Omit<ShopCategory, 'id' | 'createdAt'>) {
   const id = doc(collection(db, 'shop_categories')).id;
   await setDoc(doc(db, 'shop_categories', id), { ...cat, id, createdAt: serverTimestamp() });
@@ -1373,4 +1342,56 @@ export async function updateShopCategory(id: string, updates: Partial<ShopCatego
 
 export async function updateShopPackage(id: string, updates: Partial<ShopPackage>) {
   await updateDoc(doc(db, 'shop_packages', id), updates);
+}
+
+export async function deleteShopOrder(id: string) {
+  await deleteDoc(doc(db, 'shop_orders', id));
+}
+
+// Payment Method Management
+export function subscribePaymentMethods(callback: (methods: PaymentMethod[]) => void) {
+  const path = 'payment_methods';
+  const q = query(collection(db, path), orderBy('name', 'asc'));
+  return onSnapshot(q, (snapshot) => {
+    callback(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as PaymentMethod)));
+  }, (error) => {
+    handleFirestoreError(error, OperationType.LIST, path);
+  });
+}
+
+export async function getPaymentMethods(): Promise<PaymentMethod[]> {
+  const path = 'payment_methods';
+  try {
+    const q = query(collection(db, path), orderBy('name', 'asc'));
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as PaymentMethod));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.LIST, path);
+    return [];
+  }
+}
+
+export async function savePaymentMethod(method: Partial<PaymentMethod>) {
+  const path = 'payment_methods';
+  const id = method.id || doc(collection(db, path)).id;
+  const docRef = doc(db, path, id);
+  try {
+    await setDoc(docRef, {
+      ...method,
+      id,
+      updatedAt: serverTimestamp()
+    }, { merge: true });
+    return id;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, `${path}/${id}`);
+  }
+}
+
+export async function deletePaymentMethod(id: string) {
+  const path = 'payment_methods';
+  try {
+    await deleteDoc(doc(db, path, id));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, `${path}/${id}`);
+  }
 }

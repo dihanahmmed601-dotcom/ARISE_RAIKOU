@@ -216,6 +216,7 @@
         "label": { "type": "string" },
         "price": { "type": "number" },
         "amount": { "type": "string" },
+        "image": { "type": "string" },
         "isActive": { "type": "boolean" },
         "createdAt": { "type": "string", "format": "date-time" }
       },
@@ -235,15 +236,34 @@
         "packageLabel": { "type": "string" },
         "price": { "type": "number" },
         "playerInfo": { "type": "string" },
+        "image": { "type": "string" },
         "status": { "type": "string", "enum": ["Pending", "Completed", "Rejected"] },
         "adminNote": { "type": "string" },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "userId", "categoryId", "packageId", "price", "playerInfo", "status", "createdAt"]
+    },
+    "paymentMethod": {
+      "title": "Payment Method",
+      "description": "Configurable payment methods for deposits",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "number": { "type": "string" },
+        "type": { "type": "string", "enum": ["Send Money", "Cash Out", "Pay"] },
+        "isActive": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "number", "type", "isActive"]
     }
   },
   "firestore": {
+    "/payment_methods/{methodId}": {
+      "schema": "paymentMethod",
+      "description": "Active payment methods configuration"
+    },
     "/users/{userId}": {
       "schema": "user",
       "description": "User profile documents"

@@ -97,6 +97,7 @@ export interface UserProfile {
   name: string;
   uid: string;
   email?: string;
+  password?: string; // Added for local auth
   balance: number;
   diamonds: number;
   avatar: string;
@@ -108,13 +109,6 @@ export interface UserProfile {
   totalTopupAmount?: number;
   lowMatchCount?: number;
   highMatchCount?: number;
-}
-
-export interface TopupPackage {
-  id: string;
-  amount: number;
-  price: number;
-  label?: string;
 }
 
 export interface VerifiedCode {
@@ -153,6 +147,7 @@ export interface ShopPackage {
   label: string;
   price: number;
   amount: string;
+  image?: string;
   isActive: boolean;
   createdAt: any;
 }
@@ -167,8 +162,20 @@ export interface ShopOrder {
   packageLabel: string;
   price: number;
   playerInfo: string;
+  image?: string;
   status: 'Pending' | 'Completed' | 'Rejected';
   adminNote?: string;
   createdAt: any;
   updatedAt?: any;
+}
+
+export type PaymentFunction = 'Send Money' | 'Cash Out' | 'Pay';
+
+export interface PaymentMethod {
+  id: string;
+  name: string;
+  number: string;
+  isEnabled: boolean;
+  type: PaymentFunction;
+  updatedAt: any;
 }

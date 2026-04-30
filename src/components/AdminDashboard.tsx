@@ -3,33 +3,35 @@ import { motion, AnimatePresence } from 'motion/react';
 import { 
   Plus, Edit, Trash2, Save, X, Trophy, CreditCard, ChevronRight, Image as ImageIcon, 
   Users, Map as MapIcon, Clock, DollarSign, CheckCircle2, XCircle, Zap, Bell,
-  Search, MessageSquare, Mail, Award, Flame
+  Search, MessageSquare, Mail, Award, Flame, ShoppingBag, Diamond, Settings, ToggleLeft, ToggleRight
 } from 'lucide-react';
 import { 
   getTournaments, saveTournament, deleteTournament, uploadTournamentImage,
-  getTopupPackages, saveTopupPackage, deleteTopupPackage,
+  getShopPackages, addShopPackage, deleteShopPackage as deleteShopPackageFirebase, updateShopPackage,
   getEvents, saveEvent, deleteEvent, uploadEventImage,
   getVerifiedCodes, addVerifiedCode, deleteVerifiedCode,
   getWithdrawalRequests, updateWithdrawalStatus, deleteWithdrawalRequest,
   getTournamentRegistrations, refundTournamentRegistrations, sendNotificationToParticipants,
   subscribeHeroBanners, saveHeroBanner, deleteHeroBanner, addNotification,
-  getAllUsers
+  getAllUsers, subscribeAllShopOrders, updateShopOrder, deleteShopOrder, subscribePaymentMethods, savePaymentMethod, deletePaymentMethod
 } from '../lib/firebase';
 import { formatDate, toInputDateTime, getErrorMessage } from '../lib/utils';
 import { 
-  Tournament, TopupPackage, VerifiedCode, WithdrawalRequest, Transaction, 
-  GameEvent, TournamentRegistration, HeroBanner, UserProfile
+  Tournament, ShopPackage, VerifiedCode, WithdrawalRequest, Transaction, 
+  GameEvent, TournamentRegistration, HeroBanner, UserProfile, ShopOrder, PaymentMethod
 } from '../types';
 
 const AdminDashboard = () => {
-  const [activeTab, setActiveTab] = useState<'tournaments' | 'packages' | 'codes' | 'withdrawals' | 'events' | 'hero' | 'users'>('tournaments');
+  const [activeTab, setActiveTab] = useState<'tournaments' | 'packages' | 'codes' | 'withdrawals' | 'events' | 'hero' | 'users' | 'orders' | 'payments'>('tournaments');
   const [tournaments, setTournaments] = useState<Tournament[]>([]);
-  const [packages, setPackages] = useState<TopupPackage[]>([]);
+  const [packages, setPackages] = useState<ShopPackage[]>([]);
   const [codes, setCodes] = useState<VerifiedCode[]>([]);
   const [withdrawals, setWithdrawals] = useState<WithdrawalRequest[]>([]);
   const [events, setEvents] = useState<GameEvent[]>([]);
   const [heroBanners, setHeroBanners] = useState<HeroBanner[]>([]);
   const [players, setPlayers] = useState<UserProfile[]>([]);
+  const [shopOrders, setShopOrders] = useState<ShopOrder[]>([]);
+  const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
   
   const [userSearchTerm, setUserSearchTerm] = useState('');
   const [selectedPlayer, setSelectedPlayer] = useState<UserProfile | null>(null);
@@ -42,7 +44,7 @@ const AdminDashboard = () => {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [winnerFile, setWinnerFile] = useState<File | null>(null);
   const [confirmStatus, setConfirmStatus] = useState<{id: string, status: 'Approved' | 'Rejected'} | null>(null);
-  const [itemToDelete, setItemToDelete] = useState<{id: string, type: 'tournament' | 'package' | 'code' | 'withdrawal' | 'event'} | null>(null);
+  const [itemToDelete, setItemToDelete] = useState<{id: string, type: 'tournament' | 'package' | 'code' | 'withdrawal' | 'event' | 'hero'} | null>(null);
   const [newCode, setNewCode] = useState({ code: '', amount: 0 });
   const [editingTournamentRegs, setEditingTournamentRegs] = useState<TournamentRegistration[]>([]);
 
@@ -92,11 +94,21 @@ const AdminDashboard = () => {
 
   useEffect(() => {
     let unsubscribeHero: (() => void) | null = null;
+    let unsubscribeOrders: (() => void) | null = null;
+    let unsubscribePayments: (() => void) | null = null;
+
     if (activeTab === 'hero') {
       unsubscribeHero = subscribeHeroBanners(setHeroBanners);
+    } else if (activeTab === 'orders') {
+      unsubscribeOrders = subscribeAllShopOrders(setShopOrders);
+    } else if (activeTab === 'payments') {
+      unsubscribePayments = subscribePaymentMethods(setPaymentMethods);
     }
+
     return () => {
       if (unsubscribeHero) unsubscribeHero();
+      if (unsubscribeOrders) unsubscribeOrders();
+      if (unsubscribePayments) unsubscribePayments();
     };
   }, [activeTab]);
 
@@ -109,7 +121,7 @@ const AdminDashboard = () => {
         const data = await getTournaments();
         setTournaments(data);
       } else if (tabToFetch === 'packages') {
-        const data = await getTopupPackages();
+        const data = await getShopPackages();
         setPackages(data);
       } else if (tabToFetch === 'codes') {
         const data = await getVerifiedCodes();
@@ -123,6 +135,9 @@ const AdminDashboard = () => {
       } else if (tabToFetch === 'users') {
         const data = await getAllUsers();
         setPlayers(data);
+      } else if (tabToFetch === 'orders') {
+        // Subscribed via useEffect, but can do initial fetch here if needed
+        // Removing localStorage leftover
       }
       console.log(`AdminDashboard: Fetch completed for [${tabToFetch}]`);
     } catch (error) {
@@ -186,7 +201,11 @@ const AdminDashboard = () => {
 
   const handleSaveEvent = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!validateEvent()) return;
+    console.log("Saving Direct Post (Event):", newEvent);
+    if (!validateEvent()) {
+      console.warn("Event validation failed:", eventErrors);
+      return;
+    }
     
     setIsUploading(true);
     setSaveStatus('Preparing...');
@@ -195,38 +214,49 @@ const AdminDashboard = () => {
       let imageUrl = editingItem?.image || '';
       
       if (selectedFile) {
+        console.log("Uploading event image...");
         setSaveStatus('Uploading image...');
-        imageUrl = await uploadEventImage(selectedFile);
+        try {
+          imageUrl = await uploadEventImage(selectedFile);
+        } catch (uploadError) {
+          console.error("Image upload failed, using fallback:", uploadError);
+          // Fallback to placeholder if upload fails but we must save
+          if (!imageUrl) imageUrl = 'https://images.unsplash.com/photo-1502685104226-ee32379fefbe?q=80&w=2070&auto=format&fit=crop';
+        }
+      } else if (!imageUrl) {
+        // Default placeholder if no image provided at all
+        imageUrl = 'https://images.unsplash.com/photo-1502685104226-ee32379fefbe?q=80&w=2070&auto=format&fit=crop';
       }
 
-      setSaveStatus('Saving...');
+      setSaveStatus('Saving to Database...');
       
       const eventData = {
         title: newEvent.title || editingItem?.title || 'Announcement',
         description: newEvent.description,
         status: 'Announcement' as const,
         date: '',
-        link: newEvent.link,
+        link: newEvent.link || '',
         image: imageUrl,
         prizePool: 0,
         entryFee: 0,
         type: 'announcement' as const
       };
 
-      await saveEvent(eventData, editingItem?.id);
+      console.log("Executing saveEvent with data:", eventData);
+      const savedId = await saveEvent(eventData, editingItem?.id);
+      console.log("Event saved successfully with ID:", savedId);
 
       setEditingItem(null);
       setNewEvent({ title: '', date: '', description: '', link: '', status: 'Announcement', prizePool: 0, entryFee: 0 });
       setEventErrors({});
       setSelectedFile(null);
       
-      setIsUploading(false);
-      setSaveStatus('');
-      
-      await fetchData();
       alert("Post published successfully!");
+      fetchData();
     } catch (error: any) {
+      console.error("Critical error saving post:", error);
       alert(`Save Failed: ${getErrorMessage(error)}`);
+    } finally {
       setIsUploading(false);
       setSaveStatus('');
     }
@@ -245,6 +275,7 @@ const AdminDashboard = () => {
 
   const handleSaveTournament = async (e: React.FormEvent) => {
     e.preventDefault();
+    console.log("Saving Tournament:", editingItem);
     setIsUploading(true);
     try {
       let finalData = { ...editingItem };
@@ -259,17 +290,35 @@ const AdminDashboard = () => {
         finalData.status = 'Upcoming';
       }
 
+      // Image Upload with fallback
       if (selectedFile) {
-        const imageUrl = await uploadTournamentImage(finalData.id, selectedFile);
-        finalData.image = imageUrl;
+        console.log("Uploading tournament image...");
+        try {
+          const imageUrl = await uploadTournamentImage(finalData.id, selectedFile);
+          finalData.image = imageUrl;
+        } catch (imgError) {
+          console.error("Tournament image upload failed:", imgError);
+          // Don't block the post if image upload fails, use existing or fallback
+          if (!finalData.image) finalData.image = 'https://images.unsplash.com/photo-1542751371-adc38448a05e?q=80&w=2070&auto=format&fit=crop';
+        }
+      } else if (!finalData.image) {
+        // Default placeholder if none provided
+        finalData.image = 'https://images.unsplash.com/photo-1542751371-adc38448a05e?q=80&w=2070&auto=format&fit=crop';
       }
 
       if (winnerFile) {
-        const winnerImageUrl = await uploadTournamentImage(`${finalData.id}-winner`, winnerFile);
-        finalData.winnerPhoto = winnerImageUrl;
+        console.log("Uploading winner photo...");
+        try {
+          const winnerImageUrl = await uploadTournamentImage(`${finalData.id}-winner`, winnerFile);
+          finalData.winnerPhoto = winnerImageUrl;
+        } catch (winImgErr) {
+          console.error("Winner photo upload failed:", winImgErr);
+        }
       }
 
+      console.log("Sending tournament data to Firestore:", finalData);
       await saveTournament(finalData);
+      console.log("Tournament saved successfully!");
       
       // Send notification if completed and winner added
       if (finalData.status === 'Completed' && finalData.winnerName) {
@@ -291,10 +340,11 @@ const AdminDashboard = () => {
       setEditingItem(null);
       setSelectedFile(null);
       setWinnerFile(null);
-      // Wait for write to finish then refetch
-      await fetchData();
+      
       alert("Tournament saved successfully!");
+      fetchData();
     } catch (error: any) {
+      console.error("Critical error saving tournament:", error);
       alert(`Error saving tournament: ${error.message}`);
     } finally {
       setIsUploading(false);
@@ -363,13 +413,41 @@ const AdminDashboard = () => {
 
   const handleSavePackage = async (e: React.FormEvent) => {
     e.preventDefault();
+    setIsUploading(true);
     try {
-      await saveTopupPackage(editingItem);
+      let finalData = { ...editingItem };
+      
+      if (selectedFile) {
+        finalData.image = await uploadEventImage(selectedFile);
+      }
+
+      if (!finalData.categoryId) finalData.categoryId = 'diamonds';
+      if (finalData.isActive === undefined) finalData.isActive = true;
+
+      if (finalData.id) {
+        await updateShopPackage(finalData.id, finalData);
+      } else {
+        await addShopPackage(finalData);
+      }
+      
       setEditingItem(null);
+      setSelectedFile(null);
       await fetchData();
-      alert("Package saved!");
+      alert("Shop package saved!");
     } catch (error: any) {
       alert(`Error saving package: ${error.message}`);
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleDeletePackage = async (id: string) => {
+    try {
+      await deleteShopPackageFirebase(id);
+      setPackages(prev => prev.filter(p => p.id !== id));
+      setItemToDelete(null);
+    } catch (error: any) {
+      alert(`Error deleting package: ${error.message}`);
     }
   };
 
@@ -406,15 +484,62 @@ const AdminDashboard = () => {
     }
   };
 
-  const handleDeletePackage = async (id: string) => {
-    // Optimistic update
-    setPackages(prev => prev.filter(p => p.id !== id));
+  const handleUpdateShopOrder = async (order: ShopOrder, status: 'Completed' | 'Rejected') => {
+    const note = window.prompt(`Admin Note for ${status} (Optional):`);
+    setIsUpdating(order.id);
     try {
-      await deleteTopupPackage(id);
-      setItemToDelete(null);
+      const updates: any = { status };
+      if (note) {
+        updates.adminNote = note;
+      }
+      
+      await updateShopOrder(order.id, updates);
+      alert(`Order ${status} successfully!`);
+      // No need to fetch, it's synced via subscribe
     } catch (error: any) {
-      setPackages(packages); // Rollback
-      alert(`Error deleting package: ${error.message}`);
+      alert(`Error updating order: ${error.message}`);
+    } finally {
+      setIsUpdating(null);
+    }
+  };
+
+  const [paymentForm, setPaymentForm] = useState<Partial<PaymentMethod> | null>(null);
+
+  const handleSavePaymentMethodLocal = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!paymentForm) return;
+    setIsUploading(true);
+    try {
+      await savePaymentMethod(paymentForm);
+      setPaymentForm(null);
+      alert("Payment method saved!");
+    } catch (error: any) {
+      alert(`Error saving payment method: ${error.message}`);
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleDeletePaymentMethod = async (id: string) => {
+    if (!window.confirm("Delete this payment method?")) return;
+    try {
+      await deletePaymentMethod(id);
+      alert("Payment method deleted!");
+    } catch (error: any) {
+      alert(`Error deleting payment method: ${error.message}`);
+    }
+  };
+
+  const handleDeleteShopOrder = async (orderId: string) => {
+    if (!window.confirm("Delete this order record?")) return;
+    setIsUpdating(orderId);
+    try {
+      await deleteShopOrder(orderId);
+      alert("Order record removed!");
+    } catch (error: any) {
+      alert(`Error: ${error.message}`);
+    } finally {
+      setIsUpdating(null);
     }
   };
 
@@ -434,8 +559,11 @@ const AdminDashboard = () => {
             { id: 'tournaments', label: 'Matches', icon: <Trophy size={14} /> },
             { id: 'codes', label: 'Trx IDs', icon: <CheckCircle2 size={14} /> },
             { id: 'withdrawals', label: 'Payouts', icon: <DollarSign size={14} />, badge: withdrawals.filter(w => w.status === 'Pending').length },
+            { id: 'packages', label: 'Shop Offers', icon: <Diamond size={14} /> },
             { id: 'users', label: 'Players', icon: <Users size={14} /> },
-            { id: 'events', label: 'Direct Post', icon: <Bell size={14} /> },
+            { id: 'events', label: 'Alert Notice', icon: <Bell size={14} /> },
+            { id: 'orders', label: 'Shop Orders', icon: <ShoppingBag size={14} />, badge: shopOrders.filter(o => o.status === 'Pending').length },
+            { id: 'payments', label: 'Payments', icon: <Settings size={14} /> },
             { id: 'hero', label: 'Banners', icon: <ImageIcon size={14} /> }
           ].map((tab) => (
             <button 
@@ -460,6 +588,7 @@ const AdminDashboard = () => {
         {[
           { label: 'Live Matches', value: tournaments.filter(t => t.status !== 'Completed').length, color: 'text-neon-yellow', icon: <Flame size={14} /> },
           { label: 'Pending Payouts', value: withdrawals.filter(w => w.status === 'Pending').length, color: 'text-red-500', icon: <DollarSign size={14} />, alert: true },
+          { label: 'Shop Orders', value: shopOrders.filter(o => o.status === 'Pending').length, color: 'text-orange-400', icon: <ShoppingBag size={14} />, alert: shopOrders.filter(o => o.status === 'Pending').length > 0 },
           { label: 'Broadcast Posts', value: events.length, color: 'text-neon-purple', icon: <Bell size={14} /> },
           { label: 'System Codes', value: codes.filter(c => c.status === 'Active').length, color: 'text-green-400', icon: <Zap size={14} /> }
         ].map((stat, i) => (
@@ -556,23 +685,37 @@ const AdminDashboard = () => {
         ) : activeTab === 'packages' ? (
           <div className="grid md:grid-cols-3 xl:grid-cols-4 gap-6">
             {packages.map(p => (
-              <div key={p.id} className="glass-card p-6 bg-[#121212] border-white/5 relative group">
-                <div className="flex justify-between items-start mb-4">
-                  <div className="p-3 bg-neon-yellow/10 rounded-xl">
-                    <CreditCard className="text-neon-yellow" size={24} />
-                  </div>
-                  <div className="flex gap-2">
-                    <button onClick={() => setEditingItem(p)} className="p-2 bg-white/5 rounded-lg hover:bg-neon-purple hover:text-white transition-all">
-                      <Edit size={16} />
+              <div key={p.id} className={`glass-card p-4 bg-[#121212] border-white/5 relative group flex flex-col ${!p.isActive ? 'opacity-50 grayscale' : ''}`}>
+                <div className="aspect-square relative rounded-2xl overflow-hidden mb-4 bg-white/5">
+                  {p.image ? (
+                    <img src={p.image} alt={p.label} className="w-full h-full object-contain p-4" />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center opacity-10">
+                      <Diamond size={60} />
+                    </div>
+                  )}
+                  <div className="absolute top-2 right-2 flex gap-1">
+                    <button onClick={() => setEditingItem(p)} className="p-2 bg-black/60 backdrop-blur-md rounded-lg text-white/60 hover:text-neon-yellow transition-all border border-white/5">
+                      <Edit size={14} />
                     </button>
-                    <button onClick={() => setItemToDelete({id: p.id, type: 'package'})} className="p-2 bg-white/5 rounded-lg hover:bg-red-500 hover:text-white transition-all">
-                      <Trash2 size={16} />
+                    <button onClick={() => setItemToDelete({id: p.id, type: 'package'})} className="p-2 bg-black/60 backdrop-blur-md rounded-lg text-white/60 hover:text-red-500 transition-all border border-white/5">
+                      <Trash2 size={14} />
                     </button>
                   </div>
+                  {!p.isActive && (
+                    <div className="absolute bottom-2 left-2 px-2 py-1 bg-red-500 text-white text-[7px] font-black uppercase tracking-widest rounded-md">
+                      HIDDEN
+                    </div>
+                  )}
                 </div>
-                <h3 className="font-display font-black text-2xl italic tracking-tight mb-1">{p.amount} <span className="text-neon-yellow">৳</span></h3>
-                <p className="text-[10px] text-white/40 font-black uppercase tracking-widest">Price: ৳{p.price}</p>
-                {p.label && <p className="mt-2 inline-block px-2 py-0.5 bg-green-500/10 text-green-500 text-[8px] font-black uppercase tracking-widest rounded-md">{p.label}</p>}
+                
+                <div className="space-y-1 mt-auto">
+                   <h3 className="font-display font-black text-lg italic tracking-tighter uppercase truncate">{p.label}</h3>
+                   <div className="flex items-center justify-between">
+                     <p className="text-[10px] font-black text-neon-yellow shadow-neon-yellow italic">{p.amount}</p>
+                     <p className="text-[10px] font-black text-white/40">৳ {p.price}</p>
+                   </div>
+                </div>
               </div>
             ))}
           </div>
@@ -932,7 +1075,184 @@ const AdminDashboard = () => {
               </div>
             ))}
           </div>
-        ) : null}
+        ) : activeTab === 'orders' ? (
+          <div className="space-y-4">
+            {shopOrders.length === 0 ? (
+              <div className="glass-card p-20 text-center text-white/20">
+                <ShoppingBag size={48} className="mx-auto mb-4 opacity-10" />
+                <p className="font-black uppercase tracking-widest text-xs">No orders found</p>
+              </div>
+            ) : (
+              shopOrders.map((o) => (
+                <div key={o.id} className="glass-card p-6 bg-[#121212] border-white/5 flex flex-col md:flex-row items-center justify-between gap-6">
+                    <div className="flex items-center gap-6">
+                      <div className="w-16 h-16 bg-white/5 rounded-2xl flex items-center justify-center text-neon-yellow overflow-hidden">
+                        {o.image ? (
+                          <img src={o.image} alt="Order" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                        ) : (
+                          <Diamond size={32} />
+                        )}
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-3 mb-1">
+                          <h4 className="font-display font-black text-lg italic tracking-tight">{o.packageLabel || 'DIAMONDS'}</h4>
+                          <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase ${
+                            o.status === 'Pending' ? 'bg-orange-500/20 text-orange-400' :
+                            o.status === 'Completed' ? 'bg-green-500/20 text-green-400' :
+                            'bg-red-500/20 text-red-400'
+                          }`}>
+                            {o.status}
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-white/40 font-mono tracking-widest mb-1">UID: <span className="text-white">{o.playerInfo || (o as any).uid}</span> • ৳{o.price}</p>
+                        <p className="text-[8px] text-white/20 font-black uppercase tracking-tighter">Order: {o.id} • {o.userEmail}</p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-4">
+                      <button 
+                        onClick={async () => {
+                          const newInfo = window.prompt("Edit Player Info (UID/ID):", o.playerInfo);
+                          const newImage = window.prompt("Edit Image URL (Optional):", o.image || "");
+                          if (newInfo !== null) {
+                            try {
+                              setIsUpdating(o.id);
+                              await updateShopOrder(o.id, { playerInfo: newInfo, image: newImage || undefined });
+                              alert("Order updated successfully!");
+                            } catch (error) {
+                              alert("Failed to update order: " + getErrorMessage(error));
+                            } finally {
+                              setIsUpdating(null);
+                            }
+                          }
+                        }}
+                        className="p-3 bg-white/5 text-white/20 hover:text-neon-yellow hover:bg-neon-yellow/10 rounded-xl transition-all"
+                      >
+                        <Edit size={16} />
+                      </button>
+                      {o.status === 'Pending' && (
+                        <>
+                          <button 
+                            onClick={() => handleUpdateShopOrder(o, 'Completed')}
+                            disabled={isUpdating === o.id}
+                            className="px-6 py-3 bg-green-500 text-black rounded-xl font-black text-[10px] uppercase tracking-widest hover:scale-105 transition-all disabled:opacity-50"
+                          >
+                            {isUpdating === o.id ? 'Wait...' : 'Confirm'}
+                          </button>
+                          <button 
+                            onClick={() => handleUpdateShopOrder(o, 'Rejected')}
+                            disabled={isUpdating === o.id}
+                            className="px-6 py-3 bg-red-500 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:scale-105 transition-all disabled:opacity-50"
+                          >
+                            {isUpdating === o.id ? 'Wait...' : 'Reject'}
+                          </button>
+                        </>
+                      )}
+                      
+                      <button 
+                        onClick={() => handleDeleteShopOrder(o.id)}
+                        disabled={isUpdating === o.id}
+                        className="p-3 bg-white/5 text-white/20 hover:text-red-500 hover:bg-red-500/10 rounded-xl transition-all disabled:opacity-50"
+                      >
+                        {isUpdating === o.id ? '...' : <Trash2 size={16} />}
+                      </button>
+                    </div>
+                </div>
+              ))
+            )}
+          </div>
+        ) : activeTab === 'payments' ? (
+          <div className="space-y-8">
+            <div className="glass-card p-8 bg-[#121212] border-white/5">
+              <h3 className="font-display font-black text-xl italic tracking-tight mb-6 uppercase">Manage <span className="text-neon-yellow">Payment Methods</span></h3>
+              <form onSubmit={handleSavePaymentMethodLocal} className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 items-end">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-white/40">Method Name</label>
+                  <input 
+                    required
+                    type="text" 
+                    value={paymentForm?.name || ''}
+                    onChange={e => setPaymentForm({...paymentForm, name: e.target.value})}
+                    placeholder="e.g. bKash"
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-neon-yellow font-bold uppercase transition-all"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-white/40">Account Number</label>
+                  <input 
+                    required
+                    type="text" 
+                    value={paymentForm?.number || ''}
+                    onChange={e => setPaymentForm({...paymentForm, number: e.target.value})}
+                    placeholder="e.g. 017xxxxxxxx"
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-neon-yellow font-bold transition-all"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-white/40">Transaction Type</label>
+                  <select 
+                    required
+                    value={paymentForm?.type || 'Send Money'}
+                    onChange={e => setPaymentForm({...paymentForm, type: e.target.value as any})}
+                    className="w-full bg-[#0a0a0a] border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-neon-yellow font-bold uppercase cursor-pointer"
+                  >
+                    <option value="Send Money">Send Money</option>
+                    <option value="Cash Out">Cash Out</option>
+                    <option value="Pay">Pay</option>
+                  </select>
+                </div>
+                <button type="submit" disabled={isUploading} className="bg-neon-yellow text-black py-4 rounded-xl font-black text-[10px] uppercase tracking-widest hover:scale-[1.02] active:scale-95 transition-all shadow-[0_0_20px_rgba(250,204,21,0.2)]">
+                  {isUploading ? 'SAVING...' : paymentForm?.id ? 'UPDATE METHOD' : 'ADD METHOD'}
+                </button>
+              </form>
+            </div>
+
+            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {paymentMethods.length === 0 ? (
+                <div className="col-span-full py-20 text-center bg-white/2 rounded-3xl border border-dashed border-white/10">
+                  <p className="text-white/20 font-black uppercase tracking-widest text-xs">No payment methods configured</p>
+                </div>
+              ) : paymentMethods.map(m => (
+                <div key={m.id} className="glass-card p-6 bg-[#121212] border-white/5 relative group border-l-4 border-l-neon-purple transition-all hover:bg-white/5">
+                  <div className="flex justify-between items-start mb-4">
+                    <div className="p-3 bg-white/5 rounded-xl text-white/60">
+                      <CreditCard size={24} />
+                    </div>
+                    <div className="flex gap-2">
+                      <button onClick={() => setPaymentForm(m)} className="p-2 bg-white/5 rounded-lg hover:bg-neon-purple hover:text-white transition-all">
+                        <Edit size={16} />
+                      </button>
+                      <button 
+                        onClick={() => handleDeletePaymentMethod(m.id)}
+                        className="p-2 bg-white/5 rounded-lg hover:bg-red-500 hover:text-white transition-all text-red-500/50 hover:text-white"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  </div>
+                  <h3 className="font-display font-black text-2xl italic tracking-tight">{m.name}</h3>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-white/40 mb-4">{m.number}</p>
+                  
+                  <div className="flex items-center justify-between mt-auto pt-4 border-t border-white/5">
+                    <span className="px-2 py-1 bg-neon-purple/20 text-neon-purple rounded text-[9px] font-black uppercase tracking-[0.2em]">{m.type}</span>
+                    <button 
+                      onClick={() => savePaymentMethod({ ...m, isEnabled: !m.isEnabled })}
+                      className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${m.isEnabled ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500'}`}
+                    >
+                      {m.isEnabled ? <ToggleRight size={14} /> : <ToggleLeft size={14} />}
+                      {m.isEnabled ? 'ACTIVE' : 'OFFLINE'}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div className="text-center py-20 text-white/20">
+            <Zap size={48} className="mx-auto mb-4 opacity-10" />
+            <p className="font-black uppercase tracking-widest text-xs italic">Select a tab to view content</p>
+          </div>
+        )}
       </div>
       
       {/* DM Modal */}
@@ -1461,26 +1781,29 @@ const AdminDashboard = () => {
                         <option value="Completed">Completed</option>
                       </select>
                     </div>
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-white/40">Per Kill Prize (৳)</label>
-                      <input 
-                        type="number" 
-                        value={editingItem.perKill || ''} 
-                        onChange={e => setEditingItem({...editingItem, perKill: Number(e.target.value)})}
-                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-neon-yellow transition-all font-bold"
-                      />
-                    </div>
                   </div>
                 ) : (
-                  <div className="space-y-6">
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-white/40">Topup Amount (৳)</label>
+                  <div className="grid md:grid-cols-2 gap-6">
+                    <div className="col-span-2 space-y-2">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-white/40">Package Label / Name</label>
                       <input 
                         required
-                        type="number" 
+                        type="text" 
+                        value={editingItem.label || ''} 
+                        onChange={e => setEditingItem({...editingItem, label: e.target.value})}
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-neon-yellow transition-all font-bold"
+                        placeholder="e.g. BASIC PACK"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-white/40">Diamonds / Amount String</label>
+                      <input 
+                        required
+                        type="text" 
                         value={editingItem.amount || ''} 
-                        onChange={e => setEditingItem({...editingItem, amount: Number(e.target.value)})}
+                        onChange={e => setEditingItem({...editingItem, amount: e.target.value})}
                         className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-neon-yellow transition-all font-bold underline decoration-neon-yellow decoration-2 underline-offset-4"
+                        placeholder="e.g. 115 DIAMONDS"
                       />
                     </div>
                     <div className="space-y-2">
@@ -1491,17 +1814,53 @@ const AdminDashboard = () => {
                         value={editingItem.price || ''} 
                         onChange={e => setEditingItem({...editingItem, price: Number(e.target.value)})}
                         className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-neon-yellow transition-all font-bold"
+                        placeholder="e.g. 85"
                       />
                     </div>
                     <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-white/40">Label (Optional)</label>
+                      <label className="text-[10px] font-black uppercase tracking-widest text-white/40">Badge (e.g. HOT, BONUS)</label>
                       <input 
                         type="text" 
-                        value={editingItem.label || ''} 
-                        onChange={e => setEditingItem({...editingItem, label: e.target.value})}
+                        value={editingItem.badge || ''} 
+                        onChange={e => setEditingItem({...editingItem, badge: e.target.value})}
                         className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-neon-yellow transition-all font-bold"
-                        placeholder="e.g. Most Popular"
+                        placeholder="e.g. HOT"
                       />
+                    </div>
+                    <div className="col-span-2 space-y-4">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-white/40">Package Image (Optional)</label>
+                      <div className="flex flex-col md:flex-row gap-4">
+                        {editingItem.image && (
+                          <div className="relative w-24 h-24 rounded-xl overflow-hidden border border-white/10 shrink-0">
+                            <img src={editingItem.image} alt="Preview" className="w-full h-full object-cover" />
+                          </div>
+                        )}
+                        <label className="flex flex-col items-center justify-center w-full h-24 border-2 border-dashed border-white/10 rounded-xl cursor-pointer hover:bg-white/5 transition-all">
+                          <div className="flex flex-col items-center justify-center pt-2 pb-2">
+                            <ImageIcon className="w-8 h-8 text-white/20 mb-1" />
+                            <p className="text-[10px] font-bold text-white/40 uppercase tracking-widest">
+                              {selectedFile ? selectedFile.name : 'Upload Package Image'}
+                            </p>
+                          </div>
+                          <input 
+                            type="file" 
+                            className="hidden" 
+                            accept="image/*"
+                            onChange={(e) => setSelectedFile(e.target.files ? e.target.files[0] : null)}
+                          />
+                        </label>
+                      </div>
+                    </div>
+                    <div className="col-span-2 space-y-2">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-white/40">Visibility Status</label>
+                      <select 
+                        value={editingItem.isActive !== false ? 'Active' : 'Inactive'} 
+                        onChange={e => setEditingItem({...editingItem, isActive: e.target.value === 'Active'})}
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-neon-yellow transition-all font-bold text-white"
+                      >
+                        <option value="Active" className="bg-[#121212]">ACTIVE (Visible in Shop)</option>
+                        <option value="Inactive" className="bg-[#121212]">INACTIVE (Hidden)</option>
+                      </select>
                     </div>
                   </div>
                 )}

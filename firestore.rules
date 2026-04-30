@@ -81,7 +81,7 @@ service cloud.firestore {
 
     function isValidShopOrder(data) {
       let requiredKeys = ['id', 'userId', 'categoryId', 'packageId', 'price', 'playerInfo', 'status', 'createdAt', 'userEmail'];
-      let optionalKeys = ['categoryTitle', 'packageLabel', 'updatedAt', 'adminNote'];
+      let optionalKeys = ['categoryTitle', 'packageLabel', 'updatedAt', 'adminNote', 'image'];
       let allKeys = requiredKeys.concat(optionalKeys);
       return data.keys().hasAll(requiredKeys) &&
              data.keys().hasOnly(allKeys) &&
@@ -93,6 +93,11 @@ service cloud.firestore {
     }
 
     // --- Collection Routes ---
+
+    match /payment_methods/{methodId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
 
     match /users/{userId} {
       allow get: if isOwner(userId) || isAdmin();
